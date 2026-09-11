@@ -1,0 +1,388 @@
+openapi: 3.0.3
+info:
+  title: BeeBase Harvest Service API
+  description: >
+    Harvest service for BeeBase, an open-source backend for a beekeeper
+    management application split into microservices. Access tokens are
+    issued by auth-service (see its OpenAPI spec); this service verifies
+    them against auth-service's public key and never trusts a userID from
+    anywhere but a verified token.
+
+    A harvest record is one product (honey, pollen, propolis, or wax)
+    collected from a hive. Harvest is an independent domain
+    (User -> Apiary -> Hive -> Harvest) - it does not reference an
+    Inspection in any way, and has no ownership mechanism of its own:
+    every operation confirms the caller owns the specified hive by
+    forwarding the caller's own access token to hive-service's
+    GET /api/v1/hives/{id} and trusting its answer, on every call, not
+    just once at creation time. Since hive-service's own check is itself
+    transitive against apiary-service, this single call confirms the
+    whole chain - harvest-service never queries hive or apiary ownership
+    itself, and never stores a copy of that ownership data.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+
+tags:
+  - name: system
+    description: Liveness and readiness probes.
+  - name: harvest
+    description: Create, read, update, and delete harvest records nested under one of the caller's own hives.
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      security: []
+      description: Always returns 200 while the process is running. Has no dependencies.
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+
+  /ready:
+    get:
+      tags: [system]
+      summary: Readiness probe
+      security: []
+      description: Returns 200 only if the database is reachable.
+      responses:
+        "200":
+          description: The service is ready to receive traffic.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+        "503":
+          description: A dependency (the database) is unreachable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+
+  /api/v1/hives/{hiveId}/harvest:
+    parameters:
+      - name: hiveId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    post:
+      tags: [harvest]
+      summary: Record a harvested product for one of the caller's own hives
+      description: >
+        Rejected with 404 hive_not_found if hiveId doesn't exist or
+        doesn't belong to the caller (which also covers its apiary not
+        belonging to the caller) - verified live against hive-service,
+        not trusted from the request or from any locally stored
+        ownership data. Rejected with 409 harvest_product_exists if the
+        hive already has a harvest record for the given product; update
+        that record instead (PUT) if the amount changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateHarvestRequest" }
+      responses:
+        "201":
+          description: Harvest record created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HarvestResponse" }
+        "400":
+          description: >
+            Request failed validation: missing/invalid product, missing/
+            negative/invalid amount, missing/invalid unit, or a
+            product/unit combination that isn't allowed (e.g. HONEY + g).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: hiveId doesn't exist, or belongs to a different user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: A harvest record for this product already exists on this hive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    get:
+      tags: [harvest]
+      summary: List every harvest record for one of the caller's own hives
+      description: >
+        Returns every harvest record for hiveId, in the order they were
+        created - `[]` if the hive has none yet. No pagination: a hive
+        can have at most four harvest records (one per product). Rejected
+        with 404 hive_not_found under the same conditions as POST.
+      responses:
+        "200":
+          description: The hive's harvest records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HarvestResponse" }
+        "400":
+          description: hiveId is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: hiveId doesn't exist, or belongs to a different user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/hives/{hiveId}/harvest/{harvestId}:
+    parameters:
+      - name: hiveId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: harvestId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+
+    get:
+      tags: [harvest]
+      summary: Get one harvest record
+      description: >
+        Rejected with 404 hive_not_found if hiveId doesn't exist or
+        doesn't belong to the caller, and with 404 harvest_not_found if
+        harvestId doesn't exist or doesn't belong to hiveId.
+      responses:
+        "200":
+          description: The harvest record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HarvestResponse" }
+        "400":
+          description: hiveId or harvestId is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: >
+            No such hive (or it belongs to a different user), or no such
+            harvest record under this hive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    put:
+      tags: [harvest]
+      summary: Replace a harvest record's product, amount, and unit
+      description: >
+        Full replacement (PUT semantics): product, amount, and unit are
+        all set from the request body. Rejected with 404
+        harvest_not_found if harvestId doesn't exist or doesn't belong to
+        hiveId, and with 404 hive_not_found if hiveId itself doesn't
+        exist or doesn't belong to the caller. Rejected with 409
+        harvest_product_exists if changing product would collide with
+        another harvest record already on this hive.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateHarvestRequest" }
+      responses:
+        "200":
+          description: The updated harvest record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HarvestResponse" }
+        "400":
+          description: >
+            hiveId or harvestId is not a valid UUID, or the request
+            failed validation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: >
+            No such hive (or it belongs to a different user), or no such
+            harvest record under this hive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: A harvest record for this product already exists on this hive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    delete:
+      tags: [harvest]
+      summary: Delete a harvest record
+      description: >
+        Deleting one harvest record never affects any other harvest
+        record belonging to the same hive.
+      responses:
+        "204":
+          description: The harvest record is deleted.
+        "400":
+          description: hiveId or harvestId is not a valid UUID.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: >
+            No such hive (or it belongs to a different user), or no such
+            harvest record under this hive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: An access token issued by auth-service's /api/v1/auth/login (or /register or /refresh).
+
+  schemas:
+    StatusResponse:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+
+    HarvestProduct:
+      type: string
+      description: >
+        The kind of product a harvest record refers to. Closed set - there
+        is no OTHER/custom product at this stage.
+      enum: [HONEY, POLLEN, PROPOLIS, WAX]
+
+    HarvestUnit:
+      type: string
+      description: >
+        The unit an amount was recorded in. Only certain product/unit
+        combinations are allowed (no automatic conversion is ever
+        performed, e.g. Honey is never converted between kg and l):
+
+        | Product  | Allowed units |
+        |----------|---------------|
+        | HONEY    | kg, l         |
+        | POLLEN   | g, kg         |
+        | PROPOLIS | g             |
+        | WAX      | g             |
+      enum: [g, kg, l]
+
+    CreateHarvestRequest:
+      type: object
+      required: [product, amount, unit]
+      properties:
+        product: { $ref: "#/components/schemas/HarvestProduct" }
+        amount:
+          type: number
+          minimum: 0
+          description: The quantity collected, in `unit`. 0 is allowed; negative values are not.
+        unit: { $ref: "#/components/schemas/HarvestUnit" }
+
+    UpdateHarvestRequest:
+      type: object
+      required: [product, amount, unit]
+      description: >
+        Full replacement (PUT semantics) - there is no partial patch.
+        product, amount, and unit are all set from the request body.
+      properties:
+        product: { $ref: "#/components/schemas/HarvestProduct" }
+        amount:
+          type: number
+          minimum: 0
+          description: The quantity collected, in `unit`. 0 is allowed; negative values are not.
+        unit: { $ref: "#/components/schemas/HarvestUnit" }
+
+    HarvestResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        hive_id: { type: string, format: uuid }
+        product: { $ref: "#/components/schemas/HarvestProduct" }
+        amount: { type: number }
+        unit: { $ref: "#/components/schemas/HarvestUnit" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ErrorResponse:
+      type: object
+      description: >
+        "code" is the stable, machine-readable key: build any localized
+        message off of it, not off "message" (an English fallback for logs
+        and manual debugging, not meant to be shown to end users).
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - hive_not_found
+                - invalid_hive_id
+                - harvest_not_found
+                - invalid_harvest_id
+                - harvest_product_exists
+                - missing_authorization
+                - invalid_access_token
+                - invalid_body
+                - internal_error
+              example: harvest_not_found
+            message: { type: string, example: harvest not found }
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, enum: [validation_error] }
+            message: { type: string, example: request validation failed }
+            fields:
+              type: object
+              description: >
+                Field name to error code. Each value is a stable key (not a
+                human-readable message) meant to be localized client-side.
+              additionalProperties:
+                type: string
+                enum:
+                  - product_required
+                  - product_invalid
+                  - amount_required
+                  - amount_negative
+                  - unit_required
+                  - unit_invalid
+                  - unit_invalid_for_product
+              example: { product: "product_invalid" }
