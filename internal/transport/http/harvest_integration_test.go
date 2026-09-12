@@ -562,8 +562,8 @@ func TestHarvestFlow_ListInvalidPageAndLimit(t *testing.T) {
 }
 
 // seedFilterFixture creates a small, varied set of harvest records used
-// by the search/filter tests below: two honey records (5kg, 15kg) and
-// one wax record (15g), all under the same hive.
+// by the filter tests below: two honey records (5kg, 15kg) and one wax
+// record (15g), all under the same hive.
 func seedFilterFixture(t *testing.T, stack *testStack, token string, hiveID uuid.UUID) {
 	t.Helper()
 
@@ -577,40 +577,6 @@ func seedFilterFixture(t *testing.T, stack *testStack, token string, hiveID uuid
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("seed %v: status = %d, want %d", body, resp.StatusCode, http.StatusCreated)
 		}
-	}
-}
-
-// TestHarvestFlow_SearchFilter covers the search query parameter,
-// matched case-insensitively against product and unit.
-func TestHarvestFlow_SearchFilter(t *testing.T) {
-	stack := newTestStack(t)
-	hiveID := uuid.New()
-	token := stack.tokenFor(t, uuid.New())
-	stack.hive.allow(token, hiveID)
-	seedFilterFixture(t, stack, token, hiveID)
-
-	resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?search=hon", token, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("search=hon: status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-	var list pagination.Response[harvesthttp.Response]
-	decodeJSON(t, resp, &list)
-	if list.Pagination.Total != 2 {
-		t.Fatalf("search=hon: total = %d, want 2", list.Pagination.Total)
-	}
-	for _, item := range list.Items {
-		if item.Product != "HONEY" {
-			t.Errorf("search=hon returned non-honey item: %+v", item)
-		}
-	}
-
-	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?search=wax", token, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("search=wax: status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-	decodeJSON(t, resp, &list)
-	if list.Pagination.Total != 1 || list.Items[0].Product != "WAX" {
-		t.Fatalf("search=wax: got %+v, want only wax", list)
 	}
 }
 
@@ -700,9 +666,8 @@ func TestHarvestFlow_AmountFilter(t *testing.T) {
 	}
 }
 
-// TestHarvestFlow_CombinedFilters covers search+product, product+amount,
-// search+product+amount, and filters combined with pagination, all
-// applied together with AND semantics.
+// TestHarvestFlow_CombinedFilters covers product+amount and filters
+// combined with pagination, all applied together with AND semantics.
 func TestHarvestFlow_CombinedFilters(t *testing.T) {
 	stack := newTestStack(t)
 	hiveID := uuid.New()
@@ -710,48 +675,15 @@ func TestHarvestFlow_CombinedFilters(t *testing.T) {
 	stack.hive.allow(token, hiveID)
 	seedFilterFixture(t, stack, token, hiveID)
 
-	// search + product: only the honey records match "hon", so this is
-	// the same as the product filter alone here, but proves the two
-	// combine rather than either being ignored.
-	resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?search=hon&product=HONEY", token, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("search+product: status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-	var list pagination.Response[harvesthttp.Response]
-	decodeJSON(t, resp, &list)
-	if list.Pagination.Total != 2 {
-		t.Fatalf("search+product: total = %d, want 2", list.Pagination.Total)
-	}
-
-	// search + product that doesn't match anything with that search term.
-	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?search=wax&product=HONEY", token, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("search+product (no match): status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-	decodeJSON(t, resp, &list)
-	if list.Pagination.Total != 0 {
-		t.Fatalf("search=wax&product=HONEY: total = %d, want 0", list.Pagination.Total)
-	}
-
 	// product + amount: only the 15kg honey record matches both.
-	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?product=HONEY&amount_operator=gt&amount=10", token, nil)
+	resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?product=HONEY&amount_operator=gt&amount=10", token, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("product+amount: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
+	var list pagination.Response[harvesthttp.Response]
 	decodeJSON(t, resp, &list)
 	if list.Pagination.Total != 1 || list.Items[0].Amount != 15 || list.Items[0].Product != "HONEY" {
 		t.Fatalf("product+amount: got %+v, want only the 15kg honey record", list)
-	}
-
-	// search + product + amount, same result as above with a redundant
-	// search term added on top.
-	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?search=hon&product=HONEY&amount_operator=gt&amount=10", token, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("search+product+amount: status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-	decodeJSON(t, resp, &list)
-	if list.Pagination.Total != 1 || list.Items[0].Amount != 15 {
-		t.Fatalf("search+product+amount: got %+v, want only the 15kg honey record", list)
 	}
 
 	// Filters combined with pagination: product=HONEY matches 2 records;

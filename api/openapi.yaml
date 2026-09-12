@@ -124,8 +124,8 @@ paths:
         harvested_at descending (id descending as a stable secondary sort
         for equal harvested_at values) - an empty page if the hive has
         none yet, or if no record matches the given filters. Omitting
-        page/limit falls back to page=1, limit=20. search, product, and
-        amount_operator/amount are optional filters, all combinable with
+        page/limit falls back to page=1, limit=20. product and
+        amount_operator/amount are optional filters, combinable with
         each other and with pagination using AND semantics. Rejected with
         404 hive_not_found under the same conditions as POST.
       parameters:
@@ -137,11 +137,6 @@ paths:
           in: query
           description: Rows per page.
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
-        - name: search
-          in: query
-          description: Optional search filter (matched case-insensitively against product). Minimum 3 characters.
-          required: false
-          schema: { type: string, minLength: 3 }
         - name: product
           in: query
           description: Optional exact-match filter on product.
@@ -179,7 +174,7 @@ paths:
                   pagination: { $ref: "#/components/schemas/Pagination" }
         "400":
           description: >
-            hiveId is not a valid UUID, or page, limit, search, product,
+            hiveId is not a valid UUID, or page, limit, product,
             amount_operator, or amount is invalid.
           content:
             application/json:
@@ -456,7 +451,6 @@ components:
                   - harvested_at_invalid
                   - invalid_page
                   - invalid_limit
-                  - invalid_search
                   - invalid_product
                   - invalid_amount_operator
                   - invalid_amount

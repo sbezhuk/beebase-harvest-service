@@ -34,15 +34,10 @@ const (
 	CodeInvalidHiveID         = "invalid_hive_id"
 	CodeHarvestNotFound       = "harvest_not_found"
 	CodeInvalidHarvestID      = "invalid_harvest_id"
-	CodeInvalidSearch         = "invalid_search"
 	CodeInvalidProduct        = "invalid_product"
 	CodeInvalidAmountOperator = "invalid_amount_operator"
 	CodeInvalidAmount         = "invalid_amount"
 )
-
-// minSearchLength is the minimum number of characters required for the
-// search term to be applied.
-const minSearchLength = 3
 
 // Handler exposes the harvest HTTP endpoints. Every method requires the
 // request to have already passed through httpmw.RequireAuth.
@@ -128,7 +123,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p, fields := pagination.ParseParams(r)
-	search, fields := parseSearch(r, fields)
 	product, fields := parseProductFilter(r, fields)
 	amountOperator, amount, fields := parseAmountFilter(r, fields)
 	if len(fields) > 0 {
@@ -136,32 +130,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	harvests, total, err := h.service.List(r.Context(), token, hiveID, p, search, product, amountOperator, amount)
+	harvests, total, err := h.service.List(r.Context(), token, hiveID, p, product, amountOperator, amount)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(harvests), p, total))
-}
-
-// parseSearch reads the optional "search" query parameter: matched
-// case-insensitively against product. Absent entirely, it applies no
-// filter; present but shorter than minSearchLength, it's rejected
-// rather than silently ignored.
-func parseSearch(r *http.Request, fields map[string]string) (*string, map[string]string) {
-	s := r.URL.Query().Get("search")
-	if s == "" {
-		return nil, fields
-	}
-	if len(s) < minSearchLength {
-		if fields == nil {
-			fields = map[string]string{}
-		}
-		fields["search"] = CodeInvalidSearch
-		return nil, fields
-	}
-	return &s, fields
 }
 
 // parseProductFilter reads the optional "product" query parameter: an

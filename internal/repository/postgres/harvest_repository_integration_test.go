@@ -118,7 +118,7 @@ func TestHarvestRepository_Create_MultipleRecordsForSameProduct(t *testing.T) {
 		t.Fatalf("second Create for same product: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestHarvestRepository_ListByHive(t *testing.T) {
 		t.Fatalf("create wax in other hive: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestHarvestRepository_ListByHive_Empty(t *testing.T) {
 
 	repo := repopostgres.NewHarvestRepository(tx)
 
-	list, total, err := repo.ListByHive(ctx, uuid.New(), pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, uuid.New(), pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestHarvestRepository_ListByHive_OrderedByHarvestedAtDescWithIDTiebreak(t *
 		}
 	}
 
-	list, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestHarvestRepository_ListByHive_Pagination(t *testing.T) {
 		}
 	}
 
-	page1, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil, nil)
+	page1, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -265,64 +265,12 @@ func TestHarvestRepository_ListByHive_Pagination(t *testing.T) {
 		t.Fatalf("page 1/total = %d/%d, want 2/5", len(page1), total)
 	}
 
-	page3, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil, nil)
+	page3, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
 	if len(page3) != 1 || total != 5 {
 		t.Fatalf("page 3/total = %d/%d, want 1/5", len(page3), total)
-	}
-}
-
-// TestHarvestRepository_ListByHive_SearchFilter proves search matches
-// case-insensitively against product.
-func TestHarvestRepository_ListByHive_SearchFilter(t *testing.T) {
-	pool := testPool(t)
-	ctx := context.Background()
-
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
-	t.Cleanup(func() { _ = tx.Rollback(ctx) })
-
-	repo := repopostgres.NewHarvestRepository(tx)
-	hiveID := uuid.New()
-
-	if err := repo.Create(ctx, harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)); err != nil {
-		t.Fatalf("create honey: %v", err)
-	}
-	if err := repo.Create(ctx, harvest.New(hiveID, harvest.ProductWax, 800, harvest.UnitGram, testHarvestedAt)); err != nil {
-		t.Fatalf("create wax: %v", err)
-	}
-
-	search := "hon"
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &search, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ListByHive: %v", err)
-	}
-	if total != 1 || len(list) != 1 || list[0].Product != harvest.ProductHoney {
-		t.Fatalf("ListByHive search=%q = %+v (total=%d), want only honey", search, list, total)
-	}
-
-	waxSearch := "wax"
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &waxSearch, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ListByHive: %v", err)
-	}
-	if total != 1 || len(list) != 1 || list[0].Product != harvest.ProductWax {
-		t.Fatalf("ListByHive search=%q = %+v (total=%d), want only wax", waxSearch, list, total)
-	}
-
-	// Below the shared minimum search length: silently ignored, not an
-	// error - matches every record for the hive.
-	tooShort := "wa"
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &tooShort, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ListByHive: %v", err)
-	}
-	if total != 2 || len(list) != 2 {
-		t.Fatalf("ListByHive search=%q = %+v (total=%d), want both records (search too short to apply)", tooShort, list, total)
 	}
 }
 
@@ -349,7 +297,7 @@ func TestHarvestRepository_ListByHive_ProductFilter(t *testing.T) {
 	}
 
 	product := harvest.ProductPollen
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &product, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -385,7 +333,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 
 	gt := harvest.AmountOperatorGT
 	ten := 10.0
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, &gt, &ten)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &gt, &ten)
 	if err != nil {
 		t.Fatalf("ListByHive gt: %v", err)
 	}
@@ -394,7 +342,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 
 	lt := harvest.AmountOperatorLT
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, &lt, &ten)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &lt, &ten)
 	if err != nil {
 		t.Fatalf("ListByHive lt: %v", err)
 	}
@@ -403,7 +351,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 
 	eq := harvest.AmountOperatorEQ
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, &eq, &ten)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &eq, &ten)
 	if err != nil {
 		t.Fatalf("ListByHive eq: %v", err)
 	}
@@ -412,8 +360,8 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 }
 
-// TestHarvestRepository_ListByHive_CombinedFilters proves search,
-// product, amount, and pagination all apply together with AND semantics.
+// TestHarvestRepository_ListByHive_CombinedFilters proves product,
+// amount, and pagination all apply together with AND semantics.
 func TestHarvestRepository_ListByHive_CombinedFilters(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -439,11 +387,10 @@ func TestHarvestRepository_ListByHive_CombinedFilters(t *testing.T) {
 		}
 	}
 
-	search := "hon"
 	product := harvest.ProductHoney
 	gt := harvest.AmountOperatorGT
 	ten := 10.0
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &search, &product, &gt, &ten)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, &gt, &ten)
 	if err != nil {
 		t.Fatalf("ListByHive combined: %v", err)
 	}

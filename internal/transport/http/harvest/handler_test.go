@@ -67,51 +67,6 @@ func TestWriteServiceError(t *testing.T) {
 	}
 }
 
-func TestParseSearch(t *testing.T) {
-	strPtr := func(s string) *string { return &s }
-
-	cases := []struct {
-		name       string
-		query      string
-		wantSearch *string
-		wantCode   string
-	}{
-		{name: "omitted", query: "", wantSearch: nil},
-		{name: "empty", query: "search=", wantSearch: nil},
-		{name: "one char", query: "search=a", wantCode: CodeInvalidSearch},
-		{name: "two chars", query: "search=ab", wantCode: CodeInvalidSearch},
-		{name: "three chars", query: "search=hon", wantSearch: strPtr("hon")},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/?"+tc.query, nil)
-			s, fields := parseSearch(req, nil)
-			if tc.wantCode != "" {
-				if fields["search"] != tc.wantCode {
-					t.Fatalf("fields[search] = %q, want %q", fields["search"], tc.wantCode)
-				}
-				if s != nil {
-					t.Fatalf("search = %v, want nil", s)
-				}
-				return
-			}
-			if len(fields) != 0 {
-				t.Fatalf("unexpected fields: %v", fields)
-			}
-			if tc.wantSearch == nil {
-				if s != nil {
-					t.Fatalf("search = %v, want nil", *s)
-				}
-				return
-			}
-			if s == nil || *s != *tc.wantSearch {
-				t.Fatalf("search = %v, want %v", s, *tc.wantSearch)
-			}
-		})
-	}
-}
-
 func TestParseProductFilter(t *testing.T) {
 	cases := []struct {
 		name        string

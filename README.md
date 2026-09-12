@@ -132,13 +132,9 @@ converted between `kg` and `l`): `HONEY` → `kg`/`l`, `POLLEN` → `g`/`kg`,
 `GET /api/v1/hives/{hiveId}/harvest` returns a page of records ordered
 by `harvested_at` descending (`id` descending as a stable secondary sort
 for equal `harvested_at` values); `?page=`/`?limit=` control pagination
-(defaults 1/20, `limit` capped at 100). It also supports search and
-filtering, combinable with each other and with pagination (AND
-semantics):
+(defaults 1/20, `limit` capped at 100). It also supports filtering,
+combinable with pagination (AND semantics):
 
-- `?search=` - matched case-insensitively against `product`, minimum 3
-  characters (the same convention as apiary/hive/inspection's own
-  search);
 - `?product=` - exact match against one of `HONEY`, `POLLEN`,
   `PROPOLIS`, `WAX`;
 - `?amount_operator=`/`?amount=` - filters by amount using `gt`, `lt`,

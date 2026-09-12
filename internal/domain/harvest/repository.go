@@ -25,15 +25,12 @@ type Repository interface {
 	// ListByHive returns the page of harvest records described by p for
 	// hiveID, ordered by harvested_at DESC with id DESC as a stable
 	// secondary sort, along with the total number of matching records
-	// (independent of p, for computing pagination metadata). search,
-	// product, amountOperator, and amount are optional filters, combined
-	// with AND when more than one is given: search is matched
-	// case-insensitively against product (unit's own values are too
-	// short - at most 2 characters - to ever satisfy the shared minimum
-	// search length, so it isn't a search target); product restricts to
-	// an exact match; amountOperator/amount restrict amount by the given
-	// comparison (both must be given together, or neither).
-	ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, search *string, product *Product, amountOperator *AmountOperator, amount *float64) (harvests []*Harvest, total int, err error)
+	// (independent of p, for computing pagination metadata). product and
+	// amountOperator/amount are optional filters, combined with AND when
+	// both are given: product restricts to an exact match;
+	// amountOperator/amount restrict amount by the given comparison (both
+	// must be given together, or neither).
+	ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *Product, amountOperator *AmountOperator, amount *float64) (harvests []*Harvest, total int, err error)
 	// Update persists h.Product, h.Amount, h.Unit, h.HarvestedAt, and
 	// h.UpdatedAt for the harvest identified by h.ID under h.HiveID.
 	// Returns ErrNotFound under the same conditions as GetByID.
