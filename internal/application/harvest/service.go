@@ -60,13 +60,15 @@ func (s *Service) Get(ctx context.Context, accessToken string, hiveID, harvestID
 
 // List returns the page of harvest records described by p for hiveID,
 // after confirming hiveID belongs to whoever presented accessToken,
-// along with the total number of matching records.
-func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID, p pagination.Params) ([]*harvest.Harvest, int, error) {
+// along with the total number of matching records. search, product,
+// amountOperator, and amount are optional filters - see
+// harvest.Repository.ListByHive for how they combine.
+func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID, p pagination.Params, search *string, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64) ([]*harvest.Harvest, int, error) {
 	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return nil, 0, err
 	}
 
-	return s.harvests.ListByHive(ctx, hiveID, p)
+	return s.harvests.ListByHive(ctx, hiveID, p, search, product, amountOperator, amount)
 }
 
 // Update replaces the editable fields of the harvest identified by

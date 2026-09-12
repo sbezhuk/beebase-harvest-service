@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,11 +30,19 @@ import (
 // string, since it's the same meaning from the client's point of view
 // regardless of which service returned it.
 const (
-	CodeHiveNotFound     = "hive_not_found"
-	CodeInvalidHiveID    = "invalid_hive_id"
-	CodeHarvestNotFound  = "harvest_not_found"
-	CodeInvalidHarvestID = "invalid_harvest_id"
+	CodeHiveNotFound          = "hive_not_found"
+	CodeInvalidHiveID         = "invalid_hive_id"
+	CodeHarvestNotFound       = "harvest_not_found"
+	CodeInvalidHarvestID      = "invalid_harvest_id"
+	CodeInvalidSearch         = "invalid_search"
+	CodeInvalidProduct        = "invalid_product"
+	CodeInvalidAmountOperator = "invalid_amount_operator"
+	CodeInvalidAmount         = "invalid_amount"
 )
+
+// minSearchLength is the minimum number of characters required for the
+// search term to be applied.
+const minSearchLength = 3
 
 // Handler exposes the harvest HTTP endpoints. Every method requires the
 // request to have already passed through httpmw.RequireAuth.
@@ -119,18 +128,96 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p, fields := pagination.ParseParams(r)
+	search, fields := parseSearch(r, fields)
+	product, fields := parseProductFilter(r, fields)
+	amountOperator, amount, fields := parseAmountFilter(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	harvests, total, err := h.service.List(r.Context(), token, hiveID, p)
+	harvests, total, err := h.service.List(r.Context(), token, hiveID, p, search, product, amountOperator, amount)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(harvests), p, total))
+}
+
+// parseSearch reads the optional "search" query parameter: matched
+// case-insensitively against product. Absent entirely, it applies no
+// filter; present but shorter than minSearchLength, it's rejected
+// rather than silently ignored.
+func parseSearch(r *http.Request, fields map[string]string) (*string, map[string]string) {
+	s := r.URL.Query().Get("search")
+	if s == "" {
+		return nil, fields
+	}
+	if len(s) < minSearchLength {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["search"] = CodeInvalidSearch
+		return nil, fields
+	}
+	return &s, fields
+}
+
+// parseProductFilter reads the optional "product" query parameter: an
+// exact match against one of harvest's known products.
+func parseProductFilter(r *http.Request, fields map[string]string) (*harvest.Product, map[string]string) {
+	v := r.URL.Query().Get("product")
+	if v == "" {
+		return nil, fields
+	}
+	product := harvest.Product(v)
+	if !product.Valid() {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["product"] = CodeInvalidProduct
+		return nil, fields
+	}
+	return &product, fields
+}
+
+// parseAmountFilter reads the optional "amount_operator"/"amount" query
+// parameter pair. Both are optional, but only together: given alone,
+// the missing one is rejected the same as an invalid value for it. The
+// amount value follows the same non-negative rule as the request body's
+// own amount field.
+func parseAmountFilter(r *http.Request, fields map[string]string) (*harvest.AmountOperator, *float64, map[string]string) {
+	rawOperator := r.URL.Query().Get("amount_operator")
+	rawAmount := r.URL.Query().Get("amount")
+
+	if rawOperator == "" && rawAmount == "" {
+		return nil, nil, fields
+	}
+
+	var operator *harvest.AmountOperator
+	op := harvest.AmountOperator(rawOperator)
+	if rawOperator == "" || !op.Valid() {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["amount_operator"] = CodeInvalidAmountOperator
+	} else {
+		operator = &op
+	}
+
+	var amount *float64
+	v, err := strconv.ParseFloat(rawAmount, 64)
+	if rawAmount == "" || err != nil || v < 0 {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["amount"] = CodeInvalidAmount
+	} else {
+		amount = &v
+	}
+
+	return operator, amount, fields
 }
 
 // Update handles PUT /hives/{hiveID}/harvest/{harvestID}.

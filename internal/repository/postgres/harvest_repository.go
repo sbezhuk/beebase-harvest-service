@@ -12,6 +12,11 @@ import (
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
 )
 
+// minSearchLength is the minimum number of characters required for the
+// search term to be applied. Shorter terms produce noisy results and put
+// unnecessary load on the database.
+const minSearchLength = 3
+
 // HarvestRepository implements domain/harvest.Repository against
 // PostgreSQL. Unlike most BeeBase repositories, no query here is scoped
 // by a user_id column: this table has none (see domain/harvest's package
@@ -62,23 +67,56 @@ func (r *HarvestRepository) GetByID(ctx context.Context, hiveID, harvestID uuid.
 	return &h, nil
 }
 
-func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params) ([]*harvest.Harvest, int, error) {
-	const countQ = `SELECT count(*) FROM harvests WHERE hive_id = $1`
-
-	var total int
-	if err := r.db.QueryRow(ctx, countQ, hiveID).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("postgres: count harvests: %w", err)
-	}
-
-	const q = `
+func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, search *string, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64) ([]*harvest.Harvest, int, error) {
+	countQ := `SELECT count(*) FROM harvests WHERE hive_id = $1`
+	q := `
 		SELECT id, hive_id, product, amount, unit, harvested_at, created_at, updated_at
 		FROM harvests
 		WHERE hive_id = $1
-		ORDER BY harvested_at DESC, id DESC
-		LIMIT $2 OFFSET $3
 	`
+	countArgs := []any{hiveID}
+	argIdx := 2
 
-	rows, err := r.db.Query(ctx, q, hiveID, p.Limit, p.Offset())
+	if product != nil {
+		cond := fmt.Sprintf(" AND product = $%d", argIdx)
+		countQ += cond
+		q += cond
+		countArgs = append(countArgs, *product)
+		argIdx++
+	}
+
+	if amountOperator != nil && amount != nil {
+		cond := fmt.Sprintf(" AND amount %s $%d", amountOperator.SQL(), argIdx)
+		countQ += cond
+		q += cond
+		countArgs = append(countArgs, *amount)
+		argIdx++
+	}
+
+	listArgs := make([]any, len(countArgs))
+	copy(listArgs, countArgs)
+
+	if search != nil && len(*search) >= minSearchLength {
+		pattern := "%" + *search + "%"
+		cond := fmt.Sprintf(" AND product ILIKE $%d", argIdx)
+		countQ += cond
+		q += cond
+		countArgs = append(countArgs, pattern)
+		listArgs = append(listArgs, pattern)
+		argIdx++
+	}
+
+	q += fmt.Sprintf(`
+		ORDER BY harvested_at DESC, id DESC
+		LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+	listArgs = append(listArgs, p.Limit, p.Offset())
+
+	var total int
+	if err := r.db.QueryRow(ctx, countQ, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("postgres: count harvests: %w", err)
+	}
+
+	rows, err := r.db.Query(ctx, q, listArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("postgres: list harvests: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -45,15 +46,41 @@ func (f *fakeHarvestRepo) GetByID(_ context.Context, hiveID, harvestID uuid.UUID
 	return &cp, nil
 }
 
-func (f *fakeHarvestRepo) ListByHive(_ context.Context, hiveID uuid.UUID, p pagination.Params) ([]*harvest.Harvest, int, error) {
+func (f *fakeHarvestRepo) ListByHive(_ context.Context, hiveID uuid.UUID, p pagination.Params, search *string, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64) ([]*harvest.Harvest, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var all []*harvest.Harvest
 	for _, h := range f.byID {
-		if h.HiveID == hiveID {
-			cp := *h
-			all = append(all, &cp)
+		if h.HiveID != hiveID {
+			continue
 		}
+		if product != nil && h.Product != *product {
+			continue
+		}
+		if amountOperator != nil && amount != nil {
+			switch *amountOperator {
+			case harvest.AmountOperatorGT:
+				if !(h.Amount > *amount) {
+					continue
+				}
+			case harvest.AmountOperatorLT:
+				if !(h.Amount < *amount) {
+					continue
+				}
+			case harvest.AmountOperatorEQ:
+				if h.Amount != *amount {
+					continue
+				}
+			}
+		}
+		if search != nil {
+			needle := strings.ToLower(*search)
+			if !strings.Contains(strings.ToLower(string(h.Product)), needle) {
+				continue
+			}
+		}
+		cp := *h
+		all = append(all, &cp)
 	}
 	sort.Slice(all, func(i, j int) bool {
 		if !all[i].HarvestedAt.Equal(all[j].HarvestedAt) {
@@ -193,7 +220,7 @@ func TestCreate_MultipleRecordsForSameProduct(t *testing.T) {
 		t.Fatalf("second Create returned the same ID as the first")
 	}
 
-	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
+	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -277,7 +304,7 @@ func TestList_ReturnsEveryHarvestForTheHive(t *testing.T) {
 		t.Fatalf("create pollen: %v", err)
 	}
 
-	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
+	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -293,7 +320,7 @@ func TestList_NoHarvests_ReturnsEmpty(t *testing.T) {
 	token := "token"
 	verifier.allow(token, hiveID)
 
-	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
+	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -306,7 +333,7 @@ func TestList_HiveNotOwnedByCaller(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	svc := appharvest.NewService(newFakeHarvestRepo(), verifier)
 
-	_, _, err := svc.List(context.Background(), "some-token", uuid.New(), pagination.Params{Page: 1, Limit: 20})
+	_, _, err := svc.List(context.Background(), "some-token", uuid.New(), pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if !errors.Is(err, appharvest.ErrHiveNotFound) {
 		t.Fatalf("List for unowned hive: got %v, want ErrHiveNotFound", err)
 	}
@@ -330,7 +357,7 @@ func TestList_Pagination(t *testing.T) {
 		}
 	}
 
-	page, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 2})
+	page, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -338,7 +365,7 @@ func TestList_Pagination(t *testing.T) {
 		t.Fatalf("List page 1/total = %d/%d, want 2/3", len(page), total)
 	}
 
-	page, total, err = svc.List(context.Background(), token, hiveID, pagination.Params{Page: 2, Limit: 2})
+	page, total, err = svc.List(context.Background(), token, hiveID, pagination.Params{Page: 2, Limit: 2}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List page 2: %v", err)
 	}
@@ -517,7 +544,7 @@ func TestDelete_PreservesOtherHarvestsOnSameHive(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	list, _, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
+	list, _, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -545,7 +572,7 @@ func TestDelete_HiveNotOwnedByCaller(t *testing.T) {
 		t.Fatalf("Delete by non-owner: got %v, want ErrHiveNotFound", err)
 	}
 
-	list, _, err := svc.List(context.Background(), owner, hiveID, pagination.Params{Page: 1, Limit: 20})
+	list, _, err := svc.List(context.Background(), owner, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
