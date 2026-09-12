@@ -11,12 +11,14 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	httpmw "github.com/sbezhuk/beebase-common/authmw"
 	"github.com/sbezhuk/beebase-common/httpx"
+	"github.com/sbezhuk/beebase-common/pagination"
 	appharvest "github.com/sbezhuk/beebase-harvest-service/internal/application/harvest"
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
 )
@@ -31,7 +33,6 @@ const (
 	CodeInvalidHiveID    = "invalid_hive_id"
 	CodeHarvestNotFound  = "harvest_not_found"
 	CodeInvalidHarvestID = "invalid_harvest_id"
-	CodeDuplicateProduct = "harvest_product_exists"
 )
 
 // Handler exposes the harvest HTTP endpoints. Every method requires the
@@ -62,11 +63,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
+	// Already validated as well-formed by CreateRequest.Validate.
+	harvestedAt, _ := time.Parse(time.RFC3339, req.HarvestedAt)
 
 	created, err := h.service.Create(r.Context(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.Product(req.Product),
-		Amount:  *req.Amount,
-		Unit:    harvest.Unit(req.Unit),
+		Product:     harvest.Product(req.Product),
+		Amount:      *req.Amount,
+		Unit:        harvest.Unit(req.Unit),
+		HarvestedAt: harvestedAt,
 	})
 	if err != nil {
 		h.writeServiceError(w, err)
@@ -114,13 +118,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	harvests, err := h.service.List(r.Context(), token, hiveID)
+	p, fields := pagination.ParseParams(r)
+	if len(fields) > 0 {
+		httpx.WriteValidationError(w, fields)
+		return
+	}
+
+	harvests, total, err := h.service.List(r.Context(), token, hiveID, p)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, newListResponse(harvests))
+	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(harvests), p, total))
 }
 
 // Update handles PUT /hives/{hiveID}/harvest/{harvestID}.
@@ -144,11 +154,14 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
+	// Already validated as well-formed by UpdateRequest.Validate.
+	harvestedAt, _ := time.Parse(time.RFC3339, req.HarvestedAt)
 
 	updated, err := h.service.Update(r.Context(), token, hiveID, harvestID, appharvest.UpdateInput{
-		Product: harvest.Product(req.Product),
-		Amount:  *req.Amount,
-		Unit:    harvest.Unit(req.Unit),
+		Product:     harvest.Product(req.Product),
+		Amount:      *req.Amount,
+		Unit:        harvest.Unit(req.Unit),
+		HarvestedAt: harvestedAt,
 	})
 	if err != nil {
 		h.writeServiceError(w, err)
@@ -225,8 +238,6 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, CodeHiveNotFound, "hive not found")
 	case errors.Is(err, harvest.ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, CodeHarvestNotFound, "harvest not found")
-	case errors.Is(err, harvest.ErrDuplicateProduct):
-		httpx.WriteError(w, http.StatusConflict, CodeDuplicateProduct, "a harvest record for this product already exists on this hive")
 	default:
 		httpx.WriteInternalError(w, h.log, err)
 	}

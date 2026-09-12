@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-common/pagination"
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
 )
 
@@ -31,15 +32,15 @@ func NewService(harvests harvest.Repository, hives HiveVerifier) *Service {
 }
 
 // Create creates a new harvest record under hiveID, after confirming
-// hiveID belongs to whoever presented accessToken. Returns
-// harvest.ErrDuplicateProduct if the hive already has a record for
-// in.Product.
+// hiveID belongs to whoever presented accessToken. A hive may have any
+// number of harvest records for the same product - each call creates a
+// new, independent record.
 func (s *Service) Create(ctx context.Context, accessToken string, hiveID uuid.UUID, in CreateInput) (*harvest.Harvest, error) {
 	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return nil, err
 	}
 
-	h := harvest.New(hiveID, in.Product, in.Amount, in.Unit)
+	h := harvest.New(hiveID, in.Product, in.Amount, in.Unit, in.HarvestedAt)
 	if err := s.harvests.Create(ctx, h); err != nil {
 		return nil, fmt.Errorf("harvest: create: %w", err)
 	}
@@ -57,22 +58,20 @@ func (s *Service) Get(ctx context.Context, accessToken string, hiveID, harvestID
 	return s.harvests.GetByID(ctx, hiveID, harvestID)
 }
 
-// List returns every harvest record for hiveID, after confirming hiveID
-// belongs to whoever presented accessToken. Empty (never nil) if the
-// hive has no harvest records.
-func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID) ([]*harvest.Harvest, error) {
+// List returns the page of harvest records described by p for hiveID,
+// after confirming hiveID belongs to whoever presented accessToken,
+// along with the total number of matching records.
+func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID, p pagination.Params) ([]*harvest.Harvest, int, error) {
 	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return s.harvests.ListByHive(ctx, hiveID)
+	return s.harvests.ListByHive(ctx, hiveID, p)
 }
 
 // Update replaces the editable fields of the harvest identified by
 // harvestID under hiveID, after confirming hiveID belongs to whoever
 // presented accessToken and that harvestID itself belongs to hiveID.
-// Returns harvest.ErrDuplicateProduct if changing to in.Product would
-// collide with another harvest already recorded for the same hive.
 func (s *Service) Update(ctx context.Context, accessToken string, hiveID, harvestID uuid.UUID, in UpdateInput) (*harvest.Harvest, error) {
 	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return nil, err
@@ -86,6 +85,7 @@ func (s *Service) Update(ctx context.Context, accessToken string, hiveID, harves
 	h.Product = in.Product
 	h.Amount = in.Amount
 	h.Unit = in.Unit
+	h.HarvestedAt = in.HarvestedAt
 	h.UpdatedAt = time.Now().UTC()
 
 	if err := s.harvests.Update(ctx, h); err != nil {

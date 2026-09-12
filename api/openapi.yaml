@@ -8,10 +8,13 @@ info:
     them against auth-service's public key and never trusts a userID from
     anywhere but a verified token.
 
-    A harvest record is one product (honey, pollen, propolis, or wax)
-    collected from a hive. Harvest is an independent domain
-    (User -> Apiary -> Hive -> Harvest) - it does not reference an
-    Inspection in any way, and has no ownership mechanism of its own:
+    A harvest record is one harvest event of one product (honey, pollen,
+    propolis, or wax) collected from a hive. A hive may have any number
+    of harvest records for the same product - each represents a separate
+    harvest event, distinguished by harvested_at. Harvest is an
+    independent domain (User -> Apiary -> Hive -> Harvest) - it does not
+    reference an Inspection in any way, and has no ownership mechanism of
+    its own:
     every operation confirms the caller owns the specified hive by
     forwarding the caller's own access token to hive-service's
     GET /api/v1/hives/{id} and trusting its answer, on every call, not
@@ -79,9 +82,9 @@ paths:
         doesn't belong to the caller (which also covers its apiary not
         belonging to the caller) - verified live against hive-service,
         not trusted from the request or from any locally stored
-        ownership data. Rejected with 409 harvest_product_exists if the
-        hive already has a harvest record for the given product; update
-        that record instead (PUT) if the amount changed.
+        ownership data. A hive may have any number of harvest records for
+        the same product - each POST creates a new, independent record
+        for its own harvest event.
       requestBody:
         required: true
         content:
@@ -96,8 +99,9 @@ paths:
         "400":
           description: >
             Request failed validation: missing/invalid product, missing/
-            negative/invalid amount, missing/invalid unit, or a
-            product/unit combination that isn't allowed (e.g. HONEY + g).
+            negative/invalid amount, missing/invalid unit, a product/unit
+            combination that isn't allowed (e.g. HONEY + g), or a
+            missing/invalid harvested_at.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
@@ -111,33 +115,44 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: A harvest record for this product already exists on this hive.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
 
     get:
       tags: [harvest]
-      summary: List every harvest record for one of the caller's own hives
+      summary: List harvest records for one of the caller's own hives
       description: >
-        Returns every harvest record for hiveId, in the order they were
-        created - `[]` if the hive has none yet. No pagination: a hive
-        can have at most four harvest records (one per product). Rejected
-        with 404 hive_not_found under the same conditions as POST.
+        Returns a page of harvest records for hiveId, ordered by
+        harvested_at descending (id descending as a stable secondary sort
+        for equal harvested_at values) - an empty page if the hive has
+        none yet. Omitting page/limit falls back to page=1, limit=20.
+        Rejected with 404 hive_not_found under the same conditions as
+        POST.
+      parameters:
+        - name: page
+          in: query
+          description: 1-indexed page number.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          description: Rows per page.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
         "200":
-          description: The hive's harvest records.
+          description: A page of the hive's harvest records.
           content:
             application/json:
               schema:
-                type: array
-                items: { $ref: "#/components/schemas/HarvestResponse" }
+                type: object
+                required: [items, pagination]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/HarvestResponse" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
         "400":
-          description: hiveId is not a valid UUID.
+          description: hiveId is not a valid UUID, or page or limit is invalid.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
         "401":
           description: Missing, invalid, or expired access token.
           content:
@@ -193,15 +208,15 @@ paths:
 
     put:
       tags: [harvest]
-      summary: Replace a harvest record's product, amount, and unit
+      summary: Replace a harvest record's product, amount, unit, and harvested_at
       description: >
-        Full replacement (PUT semantics): product, amount, and unit are
-        all set from the request body. Rejected with 404
+        Full replacement (PUT semantics): product, amount, unit, and
+        harvested_at are all set from the request body. Rejected with 404
         harvest_not_found if harvestId doesn't exist or doesn't belong to
         hiveId, and with 404 hive_not_found if hiveId itself doesn't
-        exist or doesn't belong to the caller. Rejected with 409
-        harvest_product_exists if changing product would collide with
-        another harvest record already on this hive.
+        exist or doesn't belong to the caller. Changing product to one
+        already recorded on this hive is allowed - there is no
+        uniqueness constraint between hive and product.
       requestBody:
         required: true
         content:
@@ -229,11 +244,6 @@ paths:
           description: >
             No such hive (or it belongs to a different user), or no such
             harvest record under this hive.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorResponse" }
-        "409":
-          description: A harvest record for this product already exists on this hive.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -303,7 +313,7 @@ components:
 
     CreateHarvestRequest:
       type: object
-      required: [product, amount, unit]
+      required: [product, amount, unit, harvested_at]
       properties:
         product: { $ref: "#/components/schemas/HarvestProduct" }
         amount:
@@ -311,13 +321,21 @@ components:
           minimum: 0
           description: The quantity collected, in `unit`. 0 is allowed; negative values are not.
         unit: { $ref: "#/components/schemas/HarvestUnit" }
+        harvested_at:
+          type: string
+          format: date-time
+          description: >
+            When the product was actually collected (RFC 3339) - distinct
+            from created_at/updated_at, which are technical timestamps
+            for the record's own lifecycle.
 
     UpdateHarvestRequest:
       type: object
-      required: [product, amount, unit]
+      required: [product, amount, unit, harvested_at]
       description: >
         Full replacement (PUT semantics) - there is no partial patch.
-        product, amount, and unit are all set from the request body.
+        product, amount, unit, and harvested_at are all set from the
+        request body.
       properties:
         product: { $ref: "#/components/schemas/HarvestProduct" }
         amount:
@@ -325,6 +343,7 @@ components:
           minimum: 0
           description: The quantity collected, in `unit`. 0 is allowed; negative values are not.
         unit: { $ref: "#/components/schemas/HarvestUnit" }
+        harvested_at: { type: string, format: date-time }
 
     HarvestResponse:
       type: object
@@ -334,8 +353,21 @@ components:
         product: { $ref: "#/components/schemas/HarvestProduct" }
         amount: { type: number }
         unit: { $ref: "#/components/schemas/HarvestUnit" }
+        harvested_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    Pagination:
+      type: object
+      description: Metadata describing the requested page relative to the full result set.
+      required: [page, limit, total, total_pages, has_next, has_previous]
+      properties:
+        page: { type: integer, example: 1 }
+        limit: { type: integer, example: 20 }
+        total: { type: integer, description: Total matching rows across all pages., example: 37 }
+        total_pages: { type: integer, example: 2 }
+        has_next: { type: boolean }
+        has_previous: { type: boolean }
 
     ErrorResponse:
       type: object
@@ -354,7 +386,6 @@ components:
                 - invalid_hive_id
                 - harvest_not_found
                 - invalid_harvest_id
-                - harvest_product_exists
                 - missing_authorization
                 - invalid_access_token
                 - invalid_body
@@ -385,4 +416,8 @@ components:
                   - unit_required
                   - unit_invalid
                   - unit_invalid_for_product
+                  - harvested_at_required
+                  - harvested_at_invalid
+                  - invalid_page
+                  - invalid_limit
               example: { product: "product_invalid" }

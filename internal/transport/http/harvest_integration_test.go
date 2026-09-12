@@ -28,9 +28,12 @@ import (
 	"github.com/sbezhuk/beebase-common/authmw"
 	"github.com/sbezhuk/beebase-common/jwks"
 	"github.com/sbezhuk/beebase-common/logger"
+	"github.com/sbezhuk/beebase-common/pagination"
 )
 
 const testKID = "test-kid"
+
+const testHarvestedAt = "2026-09-01T00:00:00Z"
 
 // alwaysActiveSessionChecker is a stand-in for *sessionstore.Store: these
 // integration tests mint tokens directly (see tokenFor) rather than going
@@ -207,7 +210,7 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 
 	// Create
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
-		"product": "HONEY", "amount": 12.5, "unit": "kg",
+		"product": "HONEY", "amount": 12.5, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -219,6 +222,9 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 	}
 	if created.HiveID != hiveID {
 		t.Fatalf("create: hive_id = %s, want %s", created.HiveID, hiveID)
+	}
+	if !created.HarvestedAt.Equal(mustParseTime(t, testHarvestedAt)) {
+		t.Fatalf("create: harvested_at = %s, want %s", created.HarvestedAt, testHarvestedAt)
 	}
 
 	// Get
@@ -237,15 +243,19 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	var list []harvesthttp.Response
+	var list pagination.Response[harvesthttp.Response]
 	decodeJSON(t, resp, &list)
-	if len(list) != 1 {
-		t.Fatalf("list: got %d harvests, want 1", len(list))
+	if len(list.Items) != 1 {
+		t.Fatalf("list: got %d harvests, want 1", len(list.Items))
+	}
+	if list.Pagination.Total != 1 || list.Pagination.Page != 1 || list.Pagination.Limit != pagination.DefaultLimit {
+		t.Fatalf("list: pagination = %+v, want total=1 page=1 limit=%d", list.Pagination, pagination.DefaultLimit)
 	}
 
 	// Update
+	newHarvestedAt := "2026-09-05T00:00:00Z"
 	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+hiveID.String()+"/harvest/"+created.ID.String(), token, map[string]any{
-		"product": "HONEY", "amount": 15, "unit": "l",
+		"product": "HONEY", "amount": 15, "unit": "l", "harvested_at": newHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update: status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -254,6 +264,9 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 	decodeJSON(t, resp, &updated)
 	if updated.Amount != 15 || updated.Unit != "l" {
 		t.Fatalf("update: got %+v, want amount=15 unit=l", updated)
+	}
+	if !updated.HarvestedAt.Equal(mustParseTime(t, newHarvestedAt)) {
+		t.Fatalf("update: harvested_at = %s, want %s", updated.HarvestedAt, newHarvestedAt)
 	}
 
 	// Delete
@@ -268,9 +281,9 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 	}
 }
 
-// TestHarvestFlow_EmptyListForHiveWithNoHarvests proves GET returns "[]",
-// not "null" or an error, for a hive that simply has no harvest records
-// yet.
+// TestHarvestFlow_EmptyListForHiveWithNoHarvests proves GET returns an
+// empty "items" array, not "null" or an error, for a hive that simply
+// has no harvest records yet.
 func TestHarvestFlow_EmptyListForHiveWithNoHarvests(t *testing.T) {
 	stack := newTestStack(t)
 	hiveID := uuid.New()
@@ -281,10 +294,13 @@ func TestHarvestFlow_EmptyListForHiveWithNoHarvests(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	var list []harvesthttp.Response
+	var list pagination.Response[harvesthttp.Response]
 	decodeJSON(t, resp, &list)
-	if list == nil || len(list) != 0 {
-		t.Fatalf("list = %v, want a non-nil empty array", list)
+	if list.Items == nil || len(list.Items) != 0 {
+		t.Fatalf("list.items = %v, want a non-nil empty array", list.Items)
+	}
+	if list.Pagination.Total != 0 {
+		t.Fatalf("list.pagination.total = %d, want 0", list.Pagination.Total)
 	}
 }
 
@@ -299,7 +315,7 @@ func TestHarvestFlow_HarvestWithoutAnyInspection(t *testing.T) {
 	stack.hive.allow(token, hiveID)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
-		"product": "WAX", "amount": 800, "unit": "g",
+		"product": "WAX", "amount": 800, "unit": "g", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -315,10 +331,10 @@ func TestHarvestFlow_MultipleProductsOnOneHive(t *testing.T) {
 	stack.hive.allow(token, hiveID)
 
 	products := []map[string]any{
-		{"product": "HONEY", "amount": 10, "unit": "kg"},
-		{"product": "POLLEN", "amount": 500, "unit": "g"},
-		{"product": "PROPOLIS", "amount": 150, "unit": "g"},
-		{"product": "WAX", "amount": 800, "unit": "g"},
+		{"product": "HONEY", "amount": 10, "unit": "kg", "harvested_at": testHarvestedAt},
+		{"product": "POLLEN", "amount": 500, "unit": "g", "harvested_at": testHarvestedAt},
+		{"product": "PROPOLIS", "amount": 150, "unit": "g", "harvested_at": testHarvestedAt},
+		{"product": "WAX", "amount": 800, "unit": "g", "harvested_at": testHarvestedAt},
 	}
 	for _, body := range products {
 		resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, body)
@@ -331,54 +347,59 @@ func TestHarvestFlow_MultipleProductsOnOneHive(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	var list []harvesthttp.Response
+	var list pagination.Response[harvesthttp.Response]
 	decodeJSON(t, resp, &list)
-	if len(list) != len(products) {
-		t.Fatalf("list returned %d harvests, want %d", len(list), len(products))
+	if len(list.Items) != len(products) {
+		t.Fatalf("list returned %d harvests, want %d", len(list.Items), len(products))
 	}
 }
 
-// TestHarvestFlow_CreateDuplicateProductRejected proves a second harvest
-// for a product already recorded on the same hive is rejected. It
-// deliberately stops right after the conflict: a real unique-constraint
-// violation aborts the underlying Postgres transaction this test stack
-// shares across every request (see newTestStack), so any further query in
-// the same test would itself fail regardless of the application logic
-// being exercised.
-func TestHarvestFlow_CreateDuplicateProductRejected(t *testing.T) {
+// TestHarvestFlow_MultipleRecordsForSameProductAllowed proves a hive can
+// carry several harvest records for the same product - each a separate
+// harvest event - now that the UNIQUE (hive_id, product) constraint is
+// gone.
+func TestHarvestFlow_MultipleRecordsForSameProductAllowed(t *testing.T) {
 	stack := newTestStack(t)
 	hiveID := uuid.New()
 	token := stack.tokenFor(t, uuid.New())
 	stack.hive.allow(token, hiveID)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
-		"product": "HONEY", "amount": 10, "unit": "kg",
+		"product": "HONEY", "amount": 10, "unit": "kg", "harvested_at": "2026-08-15T00:00:00Z",
 	})
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("create honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+		t.Fatalf("create first honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
 
 	resp = stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
-		"product": "HONEY", "amount": 5, "unit": "kg",
+		"product": "HONEY", "amount": 7, "unit": "kg", "harvested_at": "2026-09-01T00:00:00Z",
 	})
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("create duplicate honey: status = %d, want %d", resp.StatusCode, http.StatusConflict)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create second honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var list pagination.Response[harvesthttp.Response]
+	decodeJSON(t, resp, &list)
+	if len(list.Items) != 2 || list.Pagination.Total != 2 {
+		t.Fatalf("list/total = %d/%d, want 2/2", len(list.Items), list.Pagination.Total)
 	}
 }
 
-// TestHarvestFlow_UpdateToExistingProductRejected proves changing a
-// harvest's product to one already recorded on the same hive is rejected
-// too - the UNIQUE constraint applies to updates, not just inserts. Uses
-// its own stack for the same reason described on
-// TestHarvestFlow_CreateDuplicateProductRejected.
-func TestHarvestFlow_UpdateToExistingProductRejected(t *testing.T) {
+// TestHarvestFlow_UpdateToExistingProductSucceeds proves changing a
+// harvest's product to one already recorded on the same hive is
+// allowed - there is no uniqueness constraint between hive and product.
+func TestHarvestFlow_UpdateToExistingProductSucceeds(t *testing.T) {
 	stack := newTestStack(t)
 	hiveID := uuid.New()
 	token := stack.tokenFor(t, uuid.New())
 	stack.hive.allow(token, hiveID)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
-		"product": "HONEY", "amount": 10, "unit": "kg",
+		"product": "HONEY", "amount": 10, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -387,22 +408,22 @@ func TestHarvestFlow_UpdateToExistingProductRejected(t *testing.T) {
 	decodeJSON(t, resp, &honey)
 
 	resp = stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
-		"product": "POLLEN", "amount": 500, "unit": "g",
+		"product": "POLLEN", "amount": 500, "unit": "g", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create pollen: status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
 
 	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+hiveID.String()+"/harvest/"+honey.ID.String(), token, map[string]any{
-		"product": "POLLEN", "amount": 100, "unit": "g",
+		"product": "POLLEN", "amount": 100, "unit": "g", "harvested_at": testHarvestedAt,
 	})
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("update to colliding product: status = %d, want %d", resp.StatusCode, http.StatusConflict)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update to existing product: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }
 
-// TestHarvestFlow_ValidationErrors covers rejected product/unit/amount
-// combinations, mirroring the spec's validation matrix.
+// TestHarvestFlow_ValidationErrors covers rejected product/unit/amount/
+// harvested_at combinations, mirroring the spec's validation matrix.
 func TestHarvestFlow_ValidationErrors(t *testing.T) {
 	stack := newTestStack(t)
 	hiveID := uuid.New()
@@ -410,16 +431,18 @@ func TestHarvestFlow_ValidationErrors(t *testing.T) {
 	stack.hive.allow(token, hiveID)
 
 	cases := []map[string]any{
-		{"product": "SWARM", "amount": 1, "unit": "kg"},    // invalid product
-		{"amount": 1, "unit": "kg"},                        // missing product
-		{"product": "HONEY", "amount": -1, "unit": "kg"},   // negative amount
-		{"product": "HONEY", "unit": "kg"},                 // missing amount
-		{"product": "HONEY", "amount": 1, "unit": "ml"},    // invalid unit
-		{"product": "HONEY", "amount": 1},                  // missing unit
-		{"product": "HONEY", "amount": 1, "unit": "g"},     // invalid combination
-		{"product": "POLLEN", "amount": 1, "unit": "l"},    // invalid combination
-		{"product": "PROPOLIS", "amount": 1, "unit": "kg"}, // invalid combination
-		{"product": "WAX", "amount": 1, "unit": "kg"},      // invalid combination
+		{"product": "SWARM", "amount": 1, "unit": "kg", "harvested_at": testHarvestedAt},    // invalid product
+		{"amount": 1, "unit": "kg", "harvested_at": testHarvestedAt},                        // missing product
+		{"product": "HONEY", "amount": -1, "unit": "kg", "harvested_at": testHarvestedAt},   // negative amount
+		{"product": "HONEY", "unit": "kg", "harvested_at": testHarvestedAt},                 // missing amount
+		{"product": "HONEY", "amount": 1, "unit": "ml", "harvested_at": testHarvestedAt},    // invalid unit
+		{"product": "HONEY", "amount": 1, "harvested_at": testHarvestedAt},                  // missing unit
+		{"product": "HONEY", "amount": 1, "unit": "g", "harvested_at": testHarvestedAt},     // invalid combination
+		{"product": "POLLEN", "amount": 1, "unit": "l", "harvested_at": testHarvestedAt},    // invalid combination
+		{"product": "PROPOLIS", "amount": 1, "unit": "kg", "harvested_at": testHarvestedAt}, // invalid combination
+		{"product": "WAX", "amount": 1, "unit": "kg", "harvested_at": testHarvestedAt},      // invalid combination
+		{"product": "HONEY", "amount": 1, "unit": "kg"},                                     // missing harvested_at
+		{"product": "HONEY", "amount": 1, "unit": "kg", "harvested_at": "2026-09-01"},       // invalid harvested_at format
 	}
 	for _, body := range cases {
 		resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, body)
@@ -430,10 +453,111 @@ func TestHarvestFlow_ValidationErrors(t *testing.T) {
 
 	// A zero amount is explicitly allowed.
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
-		"product": "HONEY", "amount": 0, "unit": "kg",
+		"product": "HONEY", "amount": 0, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create with zero amount: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+}
+
+// TestHarvestFlow_ListPagination proves page/limit are honored and the
+// response's pagination metadata reflects the full result set.
+func TestHarvestFlow_ListPagination(t *testing.T) {
+	stack := newTestStack(t)
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, uuid.New())
+	stack.hive.allow(token, hiveID)
+
+	dates := []string{"2026-08-01T00:00:00Z", "2026-08-15T00:00:00Z", "2026-09-01T00:00:00Z"}
+	for _, d := range dates {
+		resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
+			"product": "HONEY", "amount": 1, "unit": "kg", "harvested_at": d,
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("create %s: status = %d, want %d", d, resp.StatusCode, http.StatusCreated)
+		}
+	}
+
+	resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?page=1&limit=2", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list page 1: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var page1 pagination.Response[harvesthttp.Response]
+	decodeJSON(t, resp, &page1)
+	if len(page1.Items) != 2 {
+		t.Fatalf("list page 1: got %d items, want 2", len(page1.Items))
+	}
+	if page1.Pagination.Total != 3 || page1.Pagination.TotalPages != 2 || !page1.Pagination.HasNext || page1.Pagination.HasPrevious {
+		t.Fatalf("list page 1: pagination = %+v, want total=3 total_pages=2 has_next=true has_previous=false", page1.Pagination)
+	}
+	// Ordered by harvested_at DESC: the most recent two come first.
+	if !page1.Items[0].HarvestedAt.Equal(mustParseTime(t, dates[2])) || !page1.Items[1].HarvestedAt.Equal(mustParseTime(t, dates[1])) {
+		t.Fatalf("list page 1: items not ordered by harvested_at DESC: %+v", page1.Items)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?page=2&limit=2", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list page 2: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var page2 pagination.Response[harvesthttp.Response]
+	decodeJSON(t, resp, &page2)
+	if len(page2.Items) != 1 || page2.Pagination.HasNext || !page2.Pagination.HasPrevious {
+		t.Fatalf("list page 2: pagination = %+v, items = %d, want 1 item has_next=false has_previous=true", page2.Pagination, len(page2.Items))
+	}
+	if !page2.Items[0].HarvestedAt.Equal(mustParseTime(t, dates[0])) {
+		t.Fatalf("list page 2: expected the oldest harvest, got %+v", page2.Items[0])
+	}
+}
+
+// mustParseTime parses an RFC 3339 timestamp, failing the test on error.
+func mustParseTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", s, err)
+	}
+	return parsed
+}
+
+// TestHarvestFlow_ListDefaultsPageAndLimit proves omitting page/limit
+// falls back to page=1, limit=pagination.DefaultLimit.
+func TestHarvestFlow_ListDefaultsPageAndLimit(t *testing.T) {
+	stack := newTestStack(t)
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, uuid.New())
+	stack.hive.allow(token, hiveID)
+
+	resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var list pagination.Response[harvesthttp.Response]
+	decodeJSON(t, resp, &list)
+	if list.Pagination.Page != pagination.DefaultPage || list.Pagination.Limit != pagination.DefaultLimit {
+		t.Fatalf("list: pagination = %+v, want page=%d limit=%d", list.Pagination, pagination.DefaultPage, pagination.DefaultLimit)
+	}
+}
+
+// TestHarvestFlow_ListInvalidPageAndLimit covers rejected page/limit
+// query parameters, including limit above pagination.MaxLimit.
+func TestHarvestFlow_ListInvalidPageAndLimit(t *testing.T) {
+	stack := newTestStack(t)
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, uuid.New())
+
+	cases := []string{
+		"/api/v1/hives/" + hiveID.String() + "/harvest?page=0",
+		"/api/v1/hives/" + hiveID.String() + "/harvest?page=-1",
+		"/api/v1/hives/" + hiveID.String() + "/harvest?page=abc",
+		"/api/v1/hives/" + hiveID.String() + "/harvest?limit=0",
+		"/api/v1/hives/" + hiveID.String() + "/harvest?limit=101",
+		"/api/v1/hives/" + hiveID.String() + "/harvest?limit=abc",
+	}
+	for _, path := range cases {
+		resp := stack.request(t, http.MethodGet, path, token, nil)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("GET %s: status = %d, want %d", path, resp.StatusCode, http.StatusBadRequest)
+		}
 	}
 }
 
@@ -448,7 +572,7 @@ func TestHarvestFlow_CannotAccessAnotherUsersHarvest(t *testing.T) {
 	stack.hive.allow(ownerToken, hiveID)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", ownerToken, map[string]any{
-		"product": "HONEY", "amount": 10, "unit": "kg",
+		"product": "HONEY", "amount": 10, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -458,7 +582,7 @@ func TestHarvestFlow_CannotAccessAnotherUsersHarvest(t *testing.T) {
 
 	// Cannot create.
 	resp = stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", otherToken, map[string]any{
-		"product": "POLLEN", "amount": 500, "unit": "g",
+		"product": "POLLEN", "amount": 500, "unit": "g", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("create as different user: status = %d, want %d", resp.StatusCode, http.StatusNotFound)
@@ -478,7 +602,7 @@ func TestHarvestFlow_CannotAccessAnotherUsersHarvest(t *testing.T) {
 
 	// Cannot update.
 	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+hiveID.String()+"/harvest/"+created.ID.String(), otherToken, map[string]any{
-		"product": "HONEY", "amount": 999, "unit": "kg",
+		"product": "HONEY", "amount": 999, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("update as different user: status = %d, want %d", resp.StatusCode, http.StatusNotFound)
@@ -495,10 +619,10 @@ func TestHarvestFlow_CannotAccessAnotherUsersHarvest(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("owner list after attacks: status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	var list []harvesthttp.Response
+	var list pagination.Response[harvesthttp.Response]
 	decodeJSON(t, resp, &list)
-	if len(list) != 1 || list[0].Amount != 10 {
-		t.Fatalf("owner's harvest changed after other user's attempts: %+v", list)
+	if len(list.Items) != 1 || list.Items[0].Amount != 10 {
+		t.Fatalf("owner's harvest changed after other user's attempts: %+v", list.Items)
 	}
 }
 
@@ -515,7 +639,7 @@ func TestHarvestFlow_UpdateVerifiesHarvestBelongsToHive(t *testing.T) {
 	stack.hive.allow(tokenB, hiveB)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveA.String()+"/harvest", tokenA, map[string]any{
-		"product": "HONEY", "amount": 10, "unit": "kg",
+		"product": "HONEY", "amount": 10, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create in hive A: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -526,7 +650,7 @@ func TestHarvestFlow_UpdateVerifiesHarvestBelongsToHive(t *testing.T) {
 	// tokenB owns hiveB, not hiveA, so this must fail with hive_not_found
 	// (checked first) rather than leaking anything about hiveA's harvest.
 	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+hiveB.String()+"/harvest/"+created.ID.String(), tokenB, map[string]any{
-		"product": "HONEY", "amount": 999, "unit": "kg",
+		"product": "HONEY", "amount": 999, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("update via wrong hive (different owner): status = %d, want %d", resp.StatusCode, http.StatusNotFound)
@@ -537,7 +661,7 @@ func TestHarvestFlow_UpdateVerifiesHarvestBelongsToHive(t *testing.T) {
 	// belong to hiveB, so it's harvest_not_found.
 	stack.hive.allow(tokenA, hiveB)
 	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+hiveB.String()+"/harvest/"+created.ID.String(), tokenA, map[string]any{
-		"product": "HONEY", "amount": 999, "unit": "kg",
+		"product": "HONEY", "amount": 999, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("update via wrong hive (same owner): status = %d, want %d", resp.StatusCode, http.StatusNotFound)
@@ -556,7 +680,7 @@ func TestHarvestFlow_InvalidIDs(t *testing.T) {
 	}
 
 	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+uuid.New().String()+"/harvest/not-a-uuid", token, map[string]any{
-		"product": "HONEY", "amount": 1, "unit": "kg",
+		"product": "HONEY", "amount": 1, "unit": "kg", "harvested_at": testHarvestedAt,
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("update with malformed harvest id: status = %d, want %d", resp.StatusCode, http.StatusBadRequest)

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
+	"github.com/sbezhuk/beebase-common/pagination"
 )
 
 // Repository is the port through which the application persists and
@@ -14,21 +16,20 @@ import (
 // against hive-service, on every call, before a Repository method is
 // ever invoked.
 type Repository interface {
-	// Create persists h. Returns ErrDuplicateProduct if the hive already
-	// has a harvest record for h.Product.
+	// Create persists h.
 	Create(ctx context.Context, h *Harvest) error
 	// GetByID returns the harvest identified by harvestID under hiveID.
 	// ErrNotFound covers both an unknown id and a harvestID that belongs
 	// to a different hive.
 	GetByID(ctx context.Context, hiveID, harvestID uuid.UUID) (*Harvest, error)
-	// ListByHive returns every harvest record for hiveID, ordered by
-	// created_at then id. Empty (never nil) when there are none.
-	ListByHive(ctx context.Context, hiveID uuid.UUID) ([]*Harvest, error)
-	// Update persists h.Product, h.Amount, h.Unit, and h.UpdatedAt for the
-	// harvest identified by h.ID under h.HiveID. Returns ErrNotFound under
-	// the same conditions as GetByID, and ErrDuplicateProduct if changing
-	// h.Product would collide with another harvest already recorded for
-	// the same hive.
+	// ListByHive returns the page of harvest records described by p for
+	// hiveID, ordered by harvested_at DESC with id DESC as a stable
+	// secondary sort, along with the total number of matching records
+	// (independent of p, for computing pagination metadata).
+	ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params) (harvests []*Harvest, total int, err error)
+	// Update persists h.Product, h.Amount, h.Unit, h.HarvestedAt, and
+	// h.UpdatedAt for the harvest identified by h.ID under h.HiveID.
+	// Returns ErrNotFound under the same conditions as GetByID.
 	Update(ctx context.Context, h *Harvest) error
 	// Delete removes the harvest identified by harvestID under hiveID.
 	// Returns ErrNotFound under the same conditions as GetByID.

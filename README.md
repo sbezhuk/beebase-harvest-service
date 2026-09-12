@@ -53,7 +53,7 @@ HIVE_ID=... # a hive that TOKEN's owner created via hive-service
 
 curl -X POST http://localhost:8080/api/v1/hives/$HIVE_ID/harvest \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"product":"HONEY","amount":12.5,"unit":"kg"}'
+  -d '{"product":"HONEY","amount":12.5,"unit":"kg","harvested_at":"2026-09-01T00:00:00Z"}'
 
 curl "http://localhost:8080/api/v1/hives/$HIVE_ID/harvest" -H "Authorization: Bearer $TOKEN"
 ```
@@ -119,12 +119,20 @@ Harvest is an independent domain, not nested under Inspection:
 User -> Apiary -> Hive -> Harvest
 ```
 
-A hive may have zero, one, or several harvest records - at most one per
-product (`HONEY`, `POLLEN`, `PROPOLIS`, `WAX`), enforced by
-`UNIQUE (hive_id, product)`. Each product only accepts certain units (no
-automatic conversion, e.g. Honey is never converted between `kg` and
-`l`): `HONEY` → `kg`/`l`, `POLLEN` → `g`/`kg`, `PROPOLIS` → `g`,
-`WAX` → `g`. `amount` must be `>= 0`.
+A hive may have any number of harvest records, including several for the
+same product (`HONEY`, `POLLEN`, `PROPOLIS`, `WAX`) - each represents a
+separate harvest event, distinguished by `harvested_at` (when the
+product was actually collected, distinct from `created_at`/`updated_at`,
+which are technical record-lifecycle timestamps). There is no
+uniqueness constraint between a hive and a product. Each product only
+accepts certain units (no automatic conversion, e.g. Honey is never
+converted between `kg` and `l`): `HONEY` → `kg`/`l`, `POLLEN` → `g`/`kg`,
+`PROPOLIS` → `g`, `WAX` → `g`. `amount` must be `>= 0`.
+
+`GET /api/v1/hives/{hiveId}/harvest` returns a page of records ordered
+by `harvested_at` descending (`id` descending as a stable secondary sort
+for equal `harvested_at` values); `?page=`/`?limit=` control pagination
+(defaults 1/20, `limit` capped at 100).
 
 ## Ownership
 

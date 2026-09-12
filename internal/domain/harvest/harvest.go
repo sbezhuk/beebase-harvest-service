@@ -15,10 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// Harvest is one product (honey, pollen, propolis, or wax) recorded as
-// collected from a hive. A hive may have zero, one, or several harvest
-// records - at most one per Product, enforced by a database constraint
-// rather than in application code (see Repository.Create/Update).
+// Harvest is one harvest event of one product (honey, pollen, propolis,
+// or wax) collected from a hive. A hive may have zero, one, or several
+// harvest records for the same product - each represents a separate
+// harvest event, distinguished by HarvestedAt, and there is no
+// uniqueness constraint between a hive and a product.
 type Harvest struct {
 	ID     uuid.UUID
 	HiveID uuid.UUID // immutable after creation; opaque, owned by hive-service's own database
@@ -26,6 +27,10 @@ type Harvest struct {
 	Product Product
 	Amount  float64
 	Unit    Unit
+	// HarvestedAt is when the product was actually collected, as reported
+	// by the caller - distinct from CreatedAt/UpdatedAt, which are
+	// bookkeeping timestamps for the record's own lifecycle.
+	HarvestedAt time.Time
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -35,15 +40,16 @@ type Harvest struct {
 // CreatedAt/UpdatedAt set to now. Callers must have already verified that
 // hiveID belongs to the caller, and that product, amount, and unit are
 // all valid (including the product/unit combination), before calling New.
-func New(hiveID uuid.UUID, product Product, amount float64, unit Unit) *Harvest {
+func New(hiveID uuid.UUID, product Product, amount float64, unit Unit, harvestedAt time.Time) *Harvest {
 	now := time.Now().UTC()
 	return &Harvest{
-		ID:        uuid.New(),
-		HiveID:    hiveID,
-		Product:   product,
-		Amount:    amount,
-		Unit:      unit,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.New(),
+		HiveID:      hiveID,
+		Product:     product,
+		Amount:      amount,
+		Unit:        unit,
+		HarvestedAt: harvestedAt,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 }

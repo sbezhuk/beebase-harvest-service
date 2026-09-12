@@ -6,9 +6,11 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-common/pagination"
 	appharvest "github.com/sbezhuk/beebase-harvest-service/internal/application/harvest"
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
 )
@@ -27,11 +29,6 @@ func newFakeHarvestRepo() *fakeHarvestRepo {
 func (f *fakeHarvestRepo) Create(_ context.Context, h *harvest.Harvest) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, existing := range f.byID {
-		if existing.HiveID == h.HiveID && existing.Product == h.Product {
-			return harvest.ErrDuplicateProduct
-		}
-	}
 	cp := *h
 	f.byID[h.ID] = &cp
 	return nil
@@ -48,23 +45,33 @@ func (f *fakeHarvestRepo) GetByID(_ context.Context, hiveID, harvestID uuid.UUID
 	return &cp, nil
 }
 
-func (f *fakeHarvestRepo) ListByHive(_ context.Context, hiveID uuid.UUID) ([]*harvest.Harvest, error) {
+func (f *fakeHarvestRepo) ListByHive(_ context.Context, hiveID uuid.UUID, p pagination.Params) ([]*harvest.Harvest, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []*harvest.Harvest
+	var all []*harvest.Harvest
 	for _, h := range f.byID {
 		if h.HiveID == hiveID {
 			cp := *h
-			out = append(out, &cp)
+			all = append(all, &cp)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].CreatedAt.Before(out[j].CreatedAt)
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].HarvestedAt.Equal(all[j].HarvestedAt) {
+			return all[i].HarvestedAt.After(all[j].HarvestedAt)
 		}
-		return out[i].ID.String() < out[j].ID.String()
+		return all[i].ID.String() > all[j].ID.String()
 	})
-	return out, nil
+
+	total := len(all)
+	start := p.Offset()
+	if start > total {
+		start = total
+	}
+	end := start + p.Limit
+	if end > total {
+		end = total
+	}
+	return all[start:end], total, nil
 }
 
 func (f *fakeHarvestRepo) Update(_ context.Context, h *harvest.Harvest) error {
@@ -73,11 +80,6 @@ func (f *fakeHarvestRepo) Update(_ context.Context, h *harvest.Harvest) error {
 	existing, ok := f.byID[h.ID]
 	if !ok || existing.HiveID != h.HiveID {
 		return harvest.ErrNotFound
-	}
-	for id, other := range f.byID {
-		if id != h.ID && other.HiveID == h.HiveID && other.Product == h.Product {
-			return harvest.ErrDuplicateProduct
-		}
 	}
 	cp := *h
 	f.byID[h.ID] = &cp
@@ -121,6 +123,8 @@ func (f *fakeHiveVerifier) Verify(_ context.Context, accessToken string, hiveID 
 
 // --- tests ---
 
+var testHarvestedAt = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
 func TestCreate_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	svc := appharvest.NewService(newFakeHarvestRepo(), verifier)
@@ -129,7 +133,7 @@ func TestCreate_Success(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	h, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 12.5, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 12.5, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -139,6 +143,9 @@ func TestCreate_Success(t *testing.T) {
 	}
 	if h.Product != harvest.ProductHoney || h.Amount != 12.5 || h.Unit != harvest.UnitKilogram {
 		t.Errorf("h = %+v, want HONEY 12.5 kg", h)
+	}
+	if !h.HarvestedAt.Equal(testHarvestedAt) {
+		t.Errorf("HarvestedAt = %v, want %v", h.HarvestedAt, testHarvestedAt)
 	}
 }
 
@@ -152,31 +159,46 @@ func TestCreate_HiveNotOwnedByCaller(t *testing.T) {
 	// Deliberately not calling verifier.allow for this token/hive pair.
 
 	_, err := svc.Create(context.Background(), "attacker-token", someoneElsesHive, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 1, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 1, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if !errors.Is(err, appharvest.ErrHiveNotFound) {
 		t.Fatalf("Create under unowned hive: got %v, want ErrHiveNotFound", err)
 	}
 }
 
-func TestCreate_DuplicateProduct(t *testing.T) {
+// TestCreate_MultipleRecordsForSameProduct proves a hive can carry
+// several harvest records for the same product, each a separate harvest
+// event distinguished by HarvestedAt.
+func TestCreate_MultipleRecordsForSameProduct(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	svc := appharvest.NewService(newFakeHarvestRepo(), verifier)
 	hiveID := uuid.New()
 	token := "token"
 	verifier.allow(token, hiveID)
 
-	if _, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
-	}); err != nil {
+	first, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
+	})
+	if err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
 
-	_, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 5, Unit: harvest.UnitKilogram,
+	second, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
+		Product: harvest.ProductHoney, Amount: 7, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt.AddDate(0, 0, 17),
 	})
-	if !errors.Is(err, harvest.ErrDuplicateProduct) {
-		t.Fatalf("second Create for same product: got %v, want ErrDuplicateProduct", err)
+	if err != nil {
+		t.Fatalf("second Create for same product: %v", err)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("second Create returned the same ID as the first")
+	}
+
+	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if total != 2 || len(list) != 2 {
+		t.Fatalf("List/total = %d/%d, want 2/2", len(list), total)
 	}
 }
 
@@ -188,7 +210,7 @@ func TestGet_Success(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -212,7 +234,7 @@ func TestGet_HiveNotOwnedByCaller(t *testing.T) {
 	verifier.allow(owner, hiveID)
 
 	created, err := svc.Create(context.Background(), owner, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -237,7 +259,7 @@ func TestGet_HarvestNotFound(t *testing.T) {
 	}
 }
 
-func TestList_ReturnsEveryProductForTheHive(t *testing.T) {
+func TestList_ReturnsEveryHarvestForTheHive(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	svc := appharvest.NewService(newFakeHarvestRepo(), verifier)
 	hiveID := uuid.New()
@@ -245,22 +267,22 @@ func TestList_ReturnsEveryProductForTheHive(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	if _, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	}); err != nil {
 		t.Fatalf("create honey: %v", err)
 	}
 	if _, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductPollen, Amount: 500, Unit: harvest.UnitGram,
+		Product: harvest.ProductPollen, Amount: 500, Unit: harvest.UnitGram, HarvestedAt: testHarvestedAt,
 	}); err != nil {
 		t.Fatalf("create pollen: %v", err)
 	}
 
-	list, err := svc.List(context.Background(), token, hiveID)
+	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 2 {
-		t.Fatalf("List returned %d harvests, want 2", len(list))
+	if len(list) != 2 || total != 2 {
+		t.Fatalf("List/total = %d/%d, want 2/2", len(list), total)
 	}
 }
 
@@ -271,12 +293,12 @@ func TestList_NoHarvests_ReturnsEmpty(t *testing.T) {
 	token := "token"
 	verifier.allow(token, hiveID)
 
-	list, err := svc.List(context.Background(), token, hiveID)
+	list, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) != 0 {
-		t.Fatalf("List = %v, want empty", list)
+	if len(list) != 0 || total != 0 {
+		t.Fatalf("List/total = %d/%d, want empty", len(list), total)
 	}
 }
 
@@ -284,9 +306,44 @@ func TestList_HiveNotOwnedByCaller(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	svc := appharvest.NewService(newFakeHarvestRepo(), verifier)
 
-	_, err := svc.List(context.Background(), "some-token", uuid.New())
+	_, _, err := svc.List(context.Background(), "some-token", uuid.New(), pagination.Params{Page: 1, Limit: 20})
 	if !errors.Is(err, appharvest.ErrHiveNotFound) {
 		t.Fatalf("List for unowned hive: got %v, want ErrHiveNotFound", err)
+	}
+}
+
+// TestList_Pagination proves paging is forwarded to the repository and
+// the total reflects every matching record, not just the page returned.
+func TestList_Pagination(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	svc := appharvest.NewService(newFakeHarvestRepo(), verifier)
+	hiveID := uuid.New()
+	token := "token"
+	verifier.allow(token, hiveID)
+
+	for i := 0; i < 3; i++ {
+		if _, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
+			Product: harvest.ProductHoney, Amount: float64(i), Unit: harvest.UnitKilogram,
+			HarvestedAt: testHarvestedAt.AddDate(0, 0, i),
+		}); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+
+	page, total, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("List page 1: %v", err)
+	}
+	if len(page) != 2 || total != 3 {
+		t.Fatalf("List page 1/total = %d/%d, want 2/3", len(page), total)
+	}
+
+	page, total, err = svc.List(context.Background(), token, hiveID, pagination.Params{Page: 2, Limit: 2})
+	if err != nil {
+		t.Fatalf("List page 2: %v", err)
+	}
+	if len(page) != 1 || total != 3 {
+		t.Fatalf("List page 2/total = %d/%d, want 1/3", len(page), total)
 	}
 }
 
@@ -298,14 +355,15 @@ func TestUpdate_Success(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
+	newHarvestedAt := testHarvestedAt.AddDate(0, 0, 1)
 	updated, err := svc.Update(context.Background(), token, hiveID, created.ID, appharvest.UpdateInput{
-		Product: harvest.ProductHoney, Amount: 15, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 15, Unit: harvest.UnitKilogram, HarvestedAt: newHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -313,12 +371,18 @@ func TestUpdate_Success(t *testing.T) {
 	if updated.Amount != 15 {
 		t.Errorf("Amount = %v, want 15", updated.Amount)
 	}
+	if !updated.HarvestedAt.Equal(newHarvestedAt) {
+		t.Errorf("HarvestedAt = %v, want %v", updated.HarvestedAt, newHarvestedAt)
+	}
 	if updated.UpdatedAt.Before(created.UpdatedAt) {
 		t.Errorf("UpdatedAt = %v, want >= %v", updated.UpdatedAt, created.UpdatedAt)
 	}
 }
 
-func TestUpdate_ChangingProductToExistingOneFails(t *testing.T) {
+// TestUpdate_ToExistingProductSucceeds proves changing a harvest's
+// product to one already recorded on the same hive is allowed - there is
+// no uniqueness constraint between hive and product.
+func TestUpdate_ToExistingProductSucceeds(t *testing.T) {
 	verifier := newFakeHiveVerifier()
 	svc := appharvest.NewService(newFakeHarvestRepo(), verifier)
 	hiveID := uuid.New()
@@ -326,22 +390,25 @@ func TestUpdate_ChangingProductToExistingOneFails(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	honey, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("create honey: %v", err)
 	}
 	if _, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductPollen, Amount: 500, Unit: harvest.UnitGram,
+		Product: harvest.ProductPollen, Amount: 500, Unit: harvest.UnitGram, HarvestedAt: testHarvestedAt,
 	}); err != nil {
 		t.Fatalf("create pollen: %v", err)
 	}
 
-	_, err = svc.Update(context.Background(), token, hiveID, honey.ID, appharvest.UpdateInput{
-		Product: harvest.ProductPollen, Amount: 10, Unit: harvest.UnitGram,
+	updated, err := svc.Update(context.Background(), token, hiveID, honey.ID, appharvest.UpdateInput{
+		Product: harvest.ProductPollen, Amount: 10, Unit: harvest.UnitGram, HarvestedAt: testHarvestedAt,
 	})
-	if !errors.Is(err, harvest.ErrDuplicateProduct) {
-		t.Fatalf("Update colliding with existing product: got %v, want ErrDuplicateProduct", err)
+	if err != nil {
+		t.Fatalf("Update to existing product: %v", err)
+	}
+	if updated.Product != harvest.ProductPollen {
+		t.Errorf("Product = %v, want POLLEN", updated.Product)
 	}
 }
 
@@ -357,14 +424,14 @@ func TestUpdate_WrongHive_ReturnsNotFound(t *testing.T) {
 	verifier.allow(tokenB, hiveB)
 
 	created, err := svc.Create(context.Background(), tokenA, hiveA, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	_, err = svc.Update(context.Background(), tokenB, hiveB, created.ID, appharvest.UpdateInput{
-		Product: harvest.ProductHoney, Amount: 5, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 5, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if !errors.Is(err, harvest.ErrNotFound) {
 		t.Fatalf("Update via wrong hive: got %v, want ErrNotFound", err)
@@ -380,14 +447,14 @@ func TestUpdate_HiveNotOwnedByCaller(t *testing.T) {
 	verifier.allow(owner, hiveID)
 
 	created, err := svc.Create(context.Background(), owner, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	_, err = svc.Update(context.Background(), other, hiveID, created.ID, appharvest.UpdateInput{
-		Product: harvest.ProductHoney, Amount: 999, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 999, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if !errors.Is(err, appharvest.ErrHiveNotFound) {
 		t.Fatalf("Update by non-owner: got %v, want ErrHiveNotFound", err)
@@ -410,7 +477,7 @@ func TestDelete_Success(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	created, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -435,13 +502,13 @@ func TestDelete_PreservesOtherHarvestsOnSameHive(t *testing.T) {
 	verifier.allow(token, hiveID)
 
 	honey, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("create honey: %v", err)
 	}
 	if _, err := svc.Create(context.Background(), token, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductWax, Amount: 800, Unit: harvest.UnitGram,
+		Product: harvest.ProductWax, Amount: 800, Unit: harvest.UnitGram, HarvestedAt: testHarvestedAt,
 	}); err != nil {
 		t.Fatalf("create wax: %v", err)
 	}
@@ -450,7 +517,7 @@ func TestDelete_PreservesOtherHarvestsOnSameHive(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
-	list, err := svc.List(context.Background(), token, hiveID)
+	list, _, err := svc.List(context.Background(), token, hiveID, pagination.Params{Page: 1, Limit: 20})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -468,7 +535,7 @@ func TestDelete_HiveNotOwnedByCaller(t *testing.T) {
 	verifier.allow(owner, hiveID)
 
 	created, err := svc.Create(context.Background(), owner, hiveID, appharvest.CreateInput{
-		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram,
+		Product: harvest.ProductHoney, Amount: 10, Unit: harvest.UnitKilogram, HarvestedAt: testHarvestedAt,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -478,7 +545,7 @@ func TestDelete_HiveNotOwnedByCaller(t *testing.T) {
 		t.Fatalf("Delete by non-owner: got %v, want ErrHiveNotFound", err)
 	}
 
-	list, err := svc.List(context.Background(), owner, hiveID)
+	list, _, err := svc.List(context.Background(), owner, hiveID, pagination.Params{Page: 1, Limit: 20})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

@@ -3,6 +3,7 @@ package harvest
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/sbezhuk/beebase-common/httpx"
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
@@ -12,13 +13,15 @@ import (
 // a localized message; the field carrying no error is simply absent from
 // the response's "fields" map.
 const (
-	CodeProductRequired = "product_required"
-	CodeProductInvalid  = "product_invalid"
-	CodeAmountRequired  = "amount_required"
-	CodeAmountNegative  = "amount_negative"
-	CodeUnitRequired    = "unit_required"
-	CodeUnitInvalid     = "unit_invalid"
-	CodeUnitCombination = "unit_invalid_for_product"
+	CodeProductRequired     = "product_required"
+	CodeProductInvalid      = "product_invalid"
+	CodeAmountRequired      = "amount_required"
+	CodeAmountNegative      = "amount_negative"
+	CodeUnitRequired        = "unit_required"
+	CodeUnitInvalid         = "unit_invalid"
+	CodeUnitCombination     = "unit_invalid_for_product"
+	CodeHarvestedAtRequired = "harvested_at_required"
+	CodeHarvestedAtInvalid  = "harvested_at_invalid"
 )
 
 // validatable is implemented by every request DTO in this package.
@@ -57,6 +60,10 @@ type Request struct {
 	// CodeAmountNegative.
 	Amount *float64 `json:"amount"`
 	Unit   string   `json:"unit"`
+	// HarvestedAt is when the product was actually collected (RFC 3339),
+	// distinct from the record's own created_at/updated_at bookkeeping
+	// timestamps.
+	HarvestedAt string `json:"harvested_at"`
 }
 
 // CreateRequest is the body of POST /hives/{hiveId}/harvest.
@@ -97,6 +104,15 @@ func (r Request) validate() map[string]string {
 		fields["unit"] = CodeUnitRequired
 	case !unit.Valid():
 		fields["unit"] = CodeUnitInvalid
+	}
+
+	switch {
+	case r.HarvestedAt == "":
+		fields["harvested_at"] = CodeHarvestedAtRequired
+	default:
+		if _, err := time.Parse(time.RFC3339, r.HarvestedAt); err != nil {
+			fields["harvested_at"] = CodeHarvestedAtInvalid
+		}
 	}
 
 	// Only check the product/unit combination once both are independently

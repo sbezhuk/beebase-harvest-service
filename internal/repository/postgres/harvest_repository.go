@@ -7,14 +7,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/sbezhuk/beebase-common/pagination"
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
 )
-
-// uniqueViolationCode is PostgreSQL's SQLSTATE for a unique constraint
-// violation, used to detect a duplicate (hive_id, product) pair.
-const uniqueViolationCode = "23505"
 
 // HarvestRepository implements domain/harvest.Repository against
 // PostgreSQL. Unlike most BeeBase repositories, no query here is scoped
@@ -33,15 +29,12 @@ func NewHarvestRepository(db Querier) *HarvestRepository {
 
 func (r *HarvestRepository) Create(ctx context.Context, h *harvest.Harvest) error {
 	const q = `
-		INSERT INTO harvests (id, hive_id, product, amount, unit, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO harvests (id, hive_id, product, amount, unit, harvested_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
-	_, err := r.db.Exec(ctx, q, h.ID, h.HiveID, h.Product, h.Amount, h.Unit, h.CreatedAt, h.UpdatedAt)
+	_, err := r.db.Exec(ctx, q, h.ID, h.HiveID, h.Product, h.Amount, h.Unit, h.HarvestedAt, h.CreatedAt, h.UpdatedAt)
 	if err != nil {
-		if isUniqueViolation(err) {
-			return harvest.ErrDuplicateProduct
-		}
 		return fmt.Errorf("postgres: create harvest: %w", err)
 	}
 
@@ -50,14 +43,14 @@ func (r *HarvestRepository) Create(ctx context.Context, h *harvest.Harvest) erro
 
 func (r *HarvestRepository) GetByID(ctx context.Context, hiveID, harvestID uuid.UUID) (*harvest.Harvest, error) {
 	const q = `
-		SELECT id, hive_id, product, amount, unit, created_at, updated_at
+		SELECT id, hive_id, product, amount, unit, harvested_at, created_at, updated_at
 		FROM harvests
 		WHERE id = $1 AND hive_id = $2
 	`
 
 	var h harvest.Harvest
 	err := r.db.QueryRow(ctx, q, harvestID, hiveID).Scan(
-		&h.ID, &h.HiveID, &h.Product, &h.Amount, &h.Unit, &h.CreatedAt, &h.UpdatedAt,
+		&h.ID, &h.HiveID, &h.Product, &h.Amount, &h.Unit, &h.HarvestedAt, &h.CreatedAt, &h.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -69,47 +62,52 @@ func (r *HarvestRepository) GetByID(ctx context.Context, hiveID, harvestID uuid.
 	return &h, nil
 }
 
-func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID) ([]*harvest.Harvest, error) {
+func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params) ([]*harvest.Harvest, int, error) {
+	const countQ = `SELECT count(*) FROM harvests WHERE hive_id = $1`
+
+	var total int
+	if err := r.db.QueryRow(ctx, countQ, hiveID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("postgres: count harvests: %w", err)
+	}
+
 	const q = `
-		SELECT id, hive_id, product, amount, unit, created_at, updated_at
+		SELECT id, hive_id, product, amount, unit, harvested_at, created_at, updated_at
 		FROM harvests
 		WHERE hive_id = $1
-		ORDER BY created_at ASC, id ASC
+		ORDER BY harvested_at DESC, id DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.Query(ctx, q, hiveID)
+	rows, err := r.db.Query(ctx, q, hiveID, p.Limit, p.Offset())
 	if err != nil {
-		return nil, fmt.Errorf("postgres: list harvests: %w", err)
+		return nil, 0, fmt.Errorf("postgres: list harvests: %w", err)
 	}
 	defer rows.Close()
 
 	harvests := []*harvest.Harvest{}
 	for rows.Next() {
 		var h harvest.Harvest
-		if err := rows.Scan(&h.ID, &h.HiveID, &h.Product, &h.Amount, &h.Unit, &h.CreatedAt, &h.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("postgres: scan harvest: %w", err)
+		if err := rows.Scan(&h.ID, &h.HiveID, &h.Product, &h.Amount, &h.Unit, &h.HarvestedAt, &h.CreatedAt, &h.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("postgres: scan harvest: %w", err)
 		}
 		harvests = append(harvests, &h)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("postgres: list harvests: %w", err)
+		return nil, 0, fmt.Errorf("postgres: list harvests: %w", err)
 	}
 
-	return harvests, nil
+	return harvests, total, nil
 }
 
 func (r *HarvestRepository) Update(ctx context.Context, h *harvest.Harvest) error {
 	const q = `
 		UPDATE harvests
-		SET product = $1, amount = $2, unit = $3, updated_at = $4
-		WHERE id = $5 AND hive_id = $6
+		SET product = $1, amount = $2, unit = $3, harvested_at = $4, updated_at = $5
+		WHERE id = $6 AND hive_id = $7
 	`
 
-	tag, err := r.db.Exec(ctx, q, h.Product, h.Amount, h.Unit, h.UpdatedAt, h.ID, h.HiveID)
+	tag, err := r.db.Exec(ctx, q, h.Product, h.Amount, h.Unit, h.HarvestedAt, h.UpdatedAt, h.ID, h.HiveID)
 	if err != nil {
-		if isUniqueViolation(err) {
-			return harvest.ErrDuplicateProduct
-		}
 		return fmt.Errorf("postgres: update harvest: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
@@ -131,9 +129,4 @@ func (r *HarvestRepository) Delete(ctx context.Context, hiveID, harvestID uuid.U
 	}
 
 	return nil
-}
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolationCode
 }

@@ -10,9 +10,12 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sbezhuk/beebase-common/pagination"
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
 	repopostgres "github.com/sbezhuk/beebase-harvest-service/internal/repository/postgres"
 )
+
+var testHarvestedAt = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
 func TestHarvestRepository_CreateAndGet(t *testing.T) {
 	pool := testPool(t)
@@ -27,7 +30,7 @@ func TestHarvestRepository_CreateAndGet(t *testing.T) {
 	repo := repopostgres.NewHarvestRepository(tx)
 	hiveID := uuid.New()
 
-	h := harvest.New(hiveID, harvest.ProductHoney, 12.5, harvest.UnitKilogram)
+	h := harvest.New(hiveID, harvest.ProductHoney, 12.5, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, h); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -38,6 +41,9 @@ func TestHarvestRepository_CreateAndGet(t *testing.T) {
 	}
 	if got.Product != harvest.ProductHoney || got.Amount != 12.5 || got.Unit != harvest.UnitKilogram {
 		t.Errorf("got = %+v, want HONEY 12.5 kg", got)
+	}
+	if !got.HarvestedAt.Equal(testHarvestedAt) {
+		t.Errorf("HarvestedAt = %v, want %v", got.HarvestedAt, testHarvestedAt)
 	}
 }
 
@@ -75,7 +81,7 @@ func TestHarvestRepository_GetByID_WrongHive_NotFound(t *testing.T) {
 	hiveA := uuid.New()
 	hiveB := uuid.New()
 
-	h := harvest.New(hiveA, harvest.ProductHoney, 10, harvest.UnitKilogram)
+	h := harvest.New(hiveA, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, h); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -86,7 +92,10 @@ func TestHarvestRepository_GetByID_WrongHive_NotFound(t *testing.T) {
 	}
 }
 
-func TestHarvestRepository_Create_DuplicateProduct(t *testing.T) {
+// TestHarvestRepository_Create_MultipleRecordsForSameProduct proves a
+// hive can carry several harvest records for the same product - the
+// UNIQUE (hive_id, product) constraint no longer exists.
+func TestHarvestRepository_Create_MultipleRecordsForSameProduct(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 
@@ -99,39 +108,22 @@ func TestHarvestRepository_Create_DuplicateProduct(t *testing.T) {
 	repo := repopostgres.NewHarvestRepository(tx)
 	hiveID := uuid.New()
 
-	first := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram)
+	first := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, first); err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
 
-	second := harvest.New(hiveID, harvest.ProductHoney, 5, harvest.UnitKilogram)
-	err = repo.Create(ctx, second)
-	if !errors.Is(err, harvest.ErrDuplicateProduct) {
-		t.Fatalf("Create with duplicate product: got %v, want ErrDuplicateProduct", err)
+	second := harvest.New(hiveID, harvest.ProductHoney, 5, harvest.UnitKilogram, testHarvestedAt.AddDate(0, 0, 17))
+	if err := repo.Create(ctx, second); err != nil {
+		t.Fatalf("second Create for same product: %v", err)
 	}
-}
 
-// TestHarvestRepository_DuplicateProduct_AllowedAcrossDifferentHives
-// proves the UNIQUE constraint is scoped per hive, not global.
-func TestHarvestRepository_DuplicateProduct_AllowedAcrossDifferentHives(t *testing.T) {
-	pool := testPool(t)
-	ctx := context.Background()
-
-	tx, err := pool.Begin(ctx)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20})
 	if err != nil {
-		t.Fatalf("begin tx: %v", err)
+		t.Fatalf("ListByHive: %v", err)
 	}
-	t.Cleanup(func() { _ = tx.Rollback(ctx) })
-
-	repo := repopostgres.NewHarvestRepository(tx)
-	hiveA := uuid.New()
-	hiveB := uuid.New()
-
-	if err := repo.Create(ctx, harvest.New(hiveA, harvest.ProductHoney, 10, harvest.UnitKilogram)); err != nil {
-		t.Fatalf("create in hiveA: %v", err)
-	}
-	if err := repo.Create(ctx, harvest.New(hiveB, harvest.ProductHoney, 8, harvest.UnitKilogram)); err != nil {
-		t.Fatalf("create same product in hiveB: %v", err)
+	if total != 2 || len(list) != 2 {
+		t.Fatalf("ListByHive/total = %d/%d, want 2/2", len(list), total)
 	}
 }
 
@@ -149,22 +141,22 @@ func TestHarvestRepository_ListByHive(t *testing.T) {
 	hiveID := uuid.New()
 	otherHive := uuid.New()
 
-	if err := repo.Create(ctx, harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram)); err != nil {
+	if err := repo.Create(ctx, harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)); err != nil {
 		t.Fatalf("create honey: %v", err)
 	}
-	if err := repo.Create(ctx, harvest.New(hiveID, harvest.ProductPollen, 500, harvest.UnitGram)); err != nil {
+	if err := repo.Create(ctx, harvest.New(hiveID, harvest.ProductPollen, 500, harvest.UnitGram, testHarvestedAt)); err != nil {
 		t.Fatalf("create pollen: %v", err)
 	}
-	if err := repo.Create(ctx, harvest.New(otherHive, harvest.ProductWax, 200, harvest.UnitGram)); err != nil {
+	if err := repo.Create(ctx, harvest.New(otherHive, harvest.ProductWax, 200, harvest.UnitGram, testHarvestedAt)); err != nil {
 		t.Fatalf("create wax in other hive: %v", err)
 	}
 
-	list, err := repo.ListByHive(ctx, hiveID)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20})
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
-	if len(list) != 2 {
-		t.Fatalf("ListByHive returned %d harvests, want 2", len(list))
+	if len(list) != 2 || total != 2 {
+		t.Fatalf("ListByHive/total = %d/%d, want 2/2", len(list), total)
 	}
 	for _, h := range list {
 		if h.HiveID != hiveID {
@@ -185,12 +177,100 @@ func TestHarvestRepository_ListByHive_Empty(t *testing.T) {
 
 	repo := repopostgres.NewHarvestRepository(tx)
 
-	list, err := repo.ListByHive(ctx, uuid.New())
+	list, total, err := repo.ListByHive(ctx, uuid.New(), pagination.Params{Page: 1, Limit: 20})
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
-	if len(list) != 0 {
-		t.Fatalf("ListByHive = %v, want empty", list)
+	if len(list) != 0 || total != 0 {
+		t.Fatalf("ListByHive/total = %d/%d, want empty", len(list), total)
+	}
+}
+
+// TestHarvestRepository_ListByHive_OrderedByHarvestedAtDescWithIDTiebreak
+// proves the ordering contract: harvested_at DESC, with id DESC as a
+// stable secondary sort for equal harvested_at values.
+func TestHarvestRepository_ListByHive_OrderedByHarvestedAtDescWithIDTiebreak(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewHarvestRepository(tx)
+	hiveID := uuid.New()
+
+	older := harvest.New(hiveID, harvest.ProductHoney, 1, harvest.UnitKilogram, testHarvestedAt)
+	newer := harvest.New(hiveID, harvest.ProductHoney, 2, harvest.UnitKilogram, testHarvestedAt.AddDate(0, 0, 5))
+	// Same harvested_at as newer, to exercise the id DESC tiebreak.
+	sameDate := harvest.New(hiveID, harvest.ProductWax, 3, harvest.UnitGram, testHarvestedAt.AddDate(0, 0, 5))
+
+	for _, h := range []*harvest.Harvest{older, newer, sameDate} {
+		if err := repo.Create(ctx, h); err != nil {
+			t.Fatalf("create %v: %v", h, err)
+		}
+	}
+
+	list, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20})
+	if err != nil {
+		t.Fatalf("ListByHive: %v", err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("ListByHive returned %d harvests, want 3", len(list))
+	}
+
+	// The two harvests sharing harvested_at come first (order between
+	// them determined by id DESC), then the older one last.
+	wantFirstTwo := map[uuid.UUID]bool{newer.ID: true, sameDate.ID: true}
+	if !wantFirstTwo[list[0].ID] || !wantFirstTwo[list[1].ID] {
+		t.Fatalf("ListByHive[0:2] = %v, want the two harvests sharing the latest harvested_at", list[0:2])
+	}
+	if list[0].ID.String() < list[1].ID.String() {
+		t.Errorf("tie between equal harvested_at not broken by id DESC: %s before %s", list[0].ID, list[1].ID)
+	}
+	if list[2].ID != older.ID {
+		t.Errorf("ListByHive[2] = %s, want the oldest harvest %s last", list[2].ID, older.ID)
+	}
+}
+
+// TestHarvestRepository_ListByHive_Pagination proves LIMIT/OFFSET and the
+// total count behave correctly across pages.
+func TestHarvestRepository_ListByHive_Pagination(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewHarvestRepository(tx)
+	hiveID := uuid.New()
+
+	for i := 0; i < 5; i++ {
+		h := harvest.New(hiveID, harvest.ProductHoney, float64(i), harvest.UnitKilogram, testHarvestedAt.AddDate(0, 0, i))
+		if err := repo.Create(ctx, h); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+
+	page1, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListByHive page 1: %v", err)
+	}
+	if len(page1) != 2 || total != 5 {
+		t.Fatalf("page 1/total = %d/%d, want 2/5", len(page1), total)
+	}
+
+	page3, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 3, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListByHive page 3: %v", err)
+	}
+	if len(page3) != 1 || total != 5 {
+		t.Fatalf("page 3/total = %d/%d, want 1/5", len(page3), total)
 	}
 }
 
@@ -207,13 +287,15 @@ func TestHarvestRepository_Update(t *testing.T) {
 	repo := repopostgres.NewHarvestRepository(tx)
 	hiveID := uuid.New()
 
-	h := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram)
+	h := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, h); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
+	newHarvestedAt := testHarvestedAt.AddDate(0, 0, 1)
 	h.Amount = 15
 	h.Unit = harvest.UnitLiter
+	h.HarvestedAt = newHarvestedAt
 	h.UpdatedAt = time.Now().UTC()
 	if err := repo.Update(ctx, h); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -226,9 +308,16 @@ func TestHarvestRepository_Update(t *testing.T) {
 	if got.Amount != 15 || got.Unit != harvest.UnitLiter {
 		t.Errorf("got = %+v, want amount=15 unit=l", got)
 	}
+	if !got.HarvestedAt.Equal(newHarvestedAt) {
+		t.Errorf("HarvestedAt = %v, want %v", got.HarvestedAt, newHarvestedAt)
+	}
 }
 
-func TestHarvestRepository_Update_ChangingProductToExistingOneFails(t *testing.T) {
+// TestHarvestRepository_Update_ToExistingProductSucceeds proves changing
+// a harvest's product to one already recorded on the same hive is
+// allowed now that there's no uniqueness constraint between hive and
+// product.
+func TestHarvestRepository_Update_ToExistingProductSucceeds(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 
@@ -241,20 +330,19 @@ func TestHarvestRepository_Update_ChangingProductToExistingOneFails(t *testing.T
 	repo := repopostgres.NewHarvestRepository(tx)
 	hiveID := uuid.New()
 
-	honey := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram)
+	honey := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, honey); err != nil {
 		t.Fatalf("create honey: %v", err)
 	}
-	pollen := harvest.New(hiveID, harvest.ProductPollen, 500, harvest.UnitGram)
+	pollen := harvest.New(hiveID, harvest.ProductPollen, 500, harvest.UnitGram, testHarvestedAt)
 	if err := repo.Create(ctx, pollen); err != nil {
 		t.Fatalf("create pollen: %v", err)
 	}
 
 	honey.Product = harvest.ProductPollen
 	honey.Unit = harvest.UnitGram
-	err = repo.Update(ctx, honey)
-	if !errors.Is(err, harvest.ErrDuplicateProduct) {
-		t.Fatalf("Update colliding with existing product: got %v, want ErrDuplicateProduct", err)
+	if err := repo.Update(ctx, honey); err != nil {
+		t.Fatalf("Update to existing product: %v", err)
 	}
 }
 
@@ -272,7 +360,7 @@ func TestHarvestRepository_Update_WrongHive_NotFoundAndUnchanged(t *testing.T) {
 	hiveA := uuid.New()
 	hiveB := uuid.New()
 
-	h := harvest.New(hiveA, harvest.ProductHoney, 10, harvest.UnitKilogram)
+	h := harvest.New(hiveA, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, h); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -306,7 +394,7 @@ func TestHarvestRepository_Delete(t *testing.T) {
 	repo := repopostgres.NewHarvestRepository(tx)
 	hiveID := uuid.New()
 
-	h := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram)
+	h := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, h); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -335,8 +423,8 @@ func TestHarvestRepository_Delete_PreservesOtherHarvests(t *testing.T) {
 	repo := repopostgres.NewHarvestRepository(tx)
 	hiveID := uuid.New()
 
-	honey := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram)
-	wax := harvest.New(hiveID, harvest.ProductWax, 800, harvest.UnitGram)
+	honey := harvest.New(hiveID, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
+	wax := harvest.New(hiveID, harvest.ProductWax, 800, harvest.UnitGram, testHarvestedAt)
 	if err := repo.Create(ctx, honey); err != nil {
 		t.Fatalf("create honey: %v", err)
 	}
@@ -367,7 +455,7 @@ func TestHarvestRepository_Delete_WrongHive_NotFoundAndNotDeleted(t *testing.T) 
 	hiveA := uuid.New()
 	hiveB := uuid.New()
 
-	h := harvest.New(hiveA, harvest.ProductHoney, 10, harvest.UnitKilogram)
+	h := harvest.New(hiveA, harvest.ProductHoney, 10, harvest.UnitKilogram, testHarvestedAt)
 	if err := repo.Create(ctx, h); err != nil {
 		t.Fatalf("Create: %v", err)
 	}

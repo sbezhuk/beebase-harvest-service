@@ -35,12 +35,6 @@ func TestWriteServiceError(t *testing.T) {
 			wantCode:   CodeHarvestNotFound,
 		},
 		{
-			name:       "duplicate product",
-			err:        harvest.ErrDuplicateProduct,
-			wantStatus: http.StatusConflict,
-			wantCode:   CodeDuplicateProduct,
-		},
-		{
 			name:       "internal error",
 			err:        errors.New("db explosion"),
 			wantStatus: http.StatusInternalServerError,
