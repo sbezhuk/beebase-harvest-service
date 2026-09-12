@@ -37,6 +37,7 @@ const (
 	CodeInvalidProduct        = "invalid_product"
 	CodeInvalidAmountOperator = "invalid_amount_operator"
 	CodeInvalidAmount         = "invalid_amount"
+	CodeInvalidSortOrder      = "invalid_sort_order"
 )
 
 // Handler exposes the harvest HTTP endpoints. Every method requires the
@@ -125,12 +126,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	p, fields := pagination.ParseParams(r)
 	product, fields := parseProductFilter(r, fields)
 	amountOperator, amount, fields := parseAmountFilter(r, fields)
+	sortOrder, fields := parseSortOrder(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	harvests, total, err := h.service.List(r.Context(), token, hiveID, p, product, amountOperator, amount)
+	harvests, total, err := h.service.List(r.Context(), token, hiveID, p, product, amountOperator, amount, sortOrder)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
@@ -193,6 +195,28 @@ func parseAmountFilter(r *http.Request, fields map[string]string) (*harvest.Amou
 	}
 
 	return operator, amount, fields
+}
+
+// parseSortOrder reads the optional "sortOrder" query parameter, which
+// requests the list be ordered by creation date instead of the endpoint's
+// default order (which today is the harvest's own business date,
+// HarvestedAt, descending). A missing value means "use the default order"
+// (nil); an invalid value ("asc"/"desc" are the only accepted ones) is
+// reported as a validation error the same way parseProductFilter reports
+// one.
+func parseSortOrder(r *http.Request, fields map[string]string) (*string, map[string]string) {
+	s := r.URL.Query().Get("sortOrder")
+	if s == "" {
+		return nil, fields
+	}
+	if s != "asc" && s != "desc" {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["sortOrder"] = CodeInvalidSortOrder
+		return nil, fields
+	}
+	return &s, fields
 }
 
 // Update handles PUT /hives/{hiveID}/harvest/{harvestID}.

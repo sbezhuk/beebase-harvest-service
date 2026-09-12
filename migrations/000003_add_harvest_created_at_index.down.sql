@@ -1,0 +1,1 @@
+DROP INDEX idx_harvests_hive_created_at;

@@ -27,6 +27,23 @@ func NewHarvestRepository(db Querier) *HarvestRepository {
 	return &HarvestRepository{db: db}
 }
 
+// createdAtOrderClause returns the ORDER BY clause for a list query. When
+// sortOrder is nil, defaultClause (the query's normal, pre-existing order)
+// is used unchanged; otherwise the list is ordered by creation date in the
+// requested direction, with id tied to the same direction as a stable
+// tiebreaker (matching the convention every other ORDER BY in this
+// repository already follows).
+func createdAtOrderClause(sortOrder *string, defaultClause string) string {
+	if sortOrder == nil {
+		return defaultClause
+	}
+	dir := "ASC"
+	if *sortOrder == "desc" {
+		dir = "DESC"
+	}
+	return fmt.Sprintf("created_at %s, id %s", dir, dir)
+}
+
 func (r *HarvestRepository) Create(ctx context.Context, h *harvest.Harvest) error {
 	const q = `
 		INSERT INTO harvests (id, hive_id, product, amount, unit, harvested_at, created_at, updated_at)
@@ -62,7 +79,7 @@ func (r *HarvestRepository) GetByID(ctx context.Context, hiveID, harvestID uuid.
 	return &h, nil
 }
 
-func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64) ([]*harvest.Harvest, int, error) {
+func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, sortOrder *string) ([]*harvest.Harvest, int, error) {
 	countQ := `SELECT count(*) FROM harvests WHERE hive_id = $1`
 	q := `
 		SELECT id, hive_id, product, amount, unit, harvested_at, created_at, updated_at
@@ -92,8 +109,8 @@ func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p 
 	copy(listArgs, countArgs)
 
 	q += fmt.Sprintf(`
-		ORDER BY harvested_at DESC, id DESC
-		LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d`, createdAtOrderClause(sortOrder, "harvested_at DESC, id DESC"), argIdx, argIdx+1)
 	listArgs = append(listArgs, p.Limit, p.Offset())
 
 	var total int

@@ -118,7 +118,7 @@ func TestHarvestRepository_Create_MultipleRecordsForSameProduct(t *testing.T) {
 		t.Fatalf("second Create for same product: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestHarvestRepository_ListByHive(t *testing.T) {
 		t.Fatalf("create wax in other hive: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestHarvestRepository_ListByHive_Empty(t *testing.T) {
 
 	repo := repopostgres.NewHarvestRepository(tx)
 
-	list, total, err := repo.ListByHive(ctx, uuid.New(), pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, uuid.New(), pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestHarvestRepository_ListByHive_OrderedByHarvestedAtDescWithIDTiebreak(t *
 		}
 	}
 
-	list, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil)
+	list, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -233,6 +233,75 @@ func TestHarvestRepository_ListByHive_OrderedByHarvestedAtDescWithIDTiebreak(t *
 	if list[2].ID != older.ID {
 		t.Errorf("ListByHive[2] = %s, want the oldest harvest %s last", list[2].ID, older.ID)
 	}
+}
+
+// TestHarvestRepository_ListByHive_SortOrder proves ?sortOrder switches
+// the primary sort key from HarvestedAt DESC (the default) to CreatedAt:
+// every record here shares the same HarvestedAt, so an assertion against
+// amount (used as a stand-in id) only passes if CreatedAt actually drove
+// the result.
+func TestHarvestRepository_ListByHive_SortOrder(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewHarvestRepository(tx)
+	hiveID := uuid.New()
+
+	base := time.Now().UTC()
+	// amount doubles as an identifying marker: 1 = oldest, 2 = middle, 3 = newest.
+	amounts := []float64{1, 2, 3}
+	for i, amount := range amounts {
+		h := harvest.New(hiveID, harvest.ProductHoney, amount, harvest.UnitKilogram, testHarvestedAt)
+		h.CreatedAt = base.Add(time.Duration(i) * time.Minute)
+		h.UpdatedAt = h.CreatedAt
+		if err := repo.Create(ctx, h); err != nil {
+			t.Fatalf("create amount %v: %v", amount, err)
+		}
+	}
+
+	asc := "asc"
+	ascending, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, &asc)
+	if err != nil {
+		t.Fatalf("ListByHive asc: %v", err)
+	}
+	if got := harvestAmountsOf(ascending); !equalFloat64s(got, []float64{1, 2, 3}) {
+		t.Fatalf("ascending order = %v, want [1 2 3]", got)
+	}
+
+	desc := "desc"
+	descending, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, &desc)
+	if err != nil {
+		t.Fatalf("ListByHive desc: %v", err)
+	}
+	if got := harvestAmountsOf(descending); !equalFloat64s(got, []float64{3, 2, 1}) {
+		t.Fatalf("descending order = %v, want [3 2 1]", got)
+	}
+}
+
+func harvestAmountsOf(harvests []*harvest.Harvest) []float64 {
+	amounts := make([]float64, len(harvests))
+	for i, h := range harvests {
+		amounts[i] = h.Amount
+	}
+	return amounts
+}
+
+func equalFloat64s(a, b []float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestHarvestRepository_ListByHive_Pagination proves LIMIT/OFFSET and the
@@ -257,7 +326,7 @@ func TestHarvestRepository_ListByHive_Pagination(t *testing.T) {
 		}
 	}
 
-	page1, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil)
+	page1, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -265,7 +334,7 @@ func TestHarvestRepository_ListByHive_Pagination(t *testing.T) {
 		t.Fatalf("page 1/total = %d/%d, want 2/5", len(page1), total)
 	}
 
-	page3, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil)
+	page3, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
@@ -297,7 +366,7 @@ func TestHarvestRepository_ListByHive_ProductFilter(t *testing.T) {
 	}
 
 	product := harvest.ProductPollen
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -333,7 +402,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 
 	gt := harvest.AmountOperatorGT
 	ten := 10.0
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &gt, &ten)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &gt, &ten, nil)
 	if err != nil {
 		t.Fatalf("ListByHive gt: %v", err)
 	}
@@ -342,7 +411,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 
 	lt := harvest.AmountOperatorLT
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &lt, &ten)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &lt, &ten, nil)
 	if err != nil {
 		t.Fatalf("ListByHive lt: %v", err)
 	}
@@ -351,7 +420,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 
 	eq := harvest.AmountOperatorEQ
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &eq, &ten)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &eq, &ten, nil)
 	if err != nil {
 		t.Fatalf("ListByHive eq: %v", err)
 	}
@@ -390,7 +459,7 @@ func TestHarvestRepository_ListByHive_CombinedFilters(t *testing.T) {
 	product := harvest.ProductHoney
 	gt := harvest.AmountOperatorGT
 	ten := 10.0
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, &gt, &ten)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, &gt, &ten, nil)
 	if err != nil {
 		t.Fatalf("ListByHive combined: %v", err)
 	}

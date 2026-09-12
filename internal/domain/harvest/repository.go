@@ -29,8 +29,11 @@ type Repository interface {
 	// amountOperator/amount are optional filters, combined with AND when
 	// both are given: product restricts to an exact match;
 	// amountOperator/amount restrict amount by the given comparison (both
-	// must be given together, or neither).
-	ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *Product, amountOperator *AmountOperator, amount *float64) (harvests []*Harvest, total int, err error)
+	// must be given together, or neither). When sortOrder is non-nil
+	// ("asc" or "desc") the page is ordered by creation date in that
+	// direction instead of the default order; a nil sortOrder keeps the
+	// default order.
+	ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *Product, amountOperator *AmountOperator, amount *float64, sortOrder *string) (harvests []*Harvest, total int, err error)
 	// Update persists h.Product, h.Amount, h.Unit, h.HarvestedAt, and
 	// h.UpdatedAt for the harvest identified by h.ID under h.HiveID.
 	// Returns ErrNotFound under the same conditions as GetByID.
