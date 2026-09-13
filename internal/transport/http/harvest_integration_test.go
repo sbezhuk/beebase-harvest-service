@@ -666,8 +666,72 @@ func TestHarvestFlow_AmountFilter(t *testing.T) {
 	}
 }
 
-// TestHarvestFlow_CombinedFilters covers product+amount and filters
-// combined with pagination, all applied together with AND semantics.
+// TestHarvestFlow_DateFilter covers the date_from/date_to query
+// parameters: each used alone, both together, exact boundary dates (a
+// record harvested at the last instant of the requested date_to's
+// calendar day must still match), a range matching nothing, and rejected
+// invalid formats/ranges.
+func TestHarvestFlow_DateFilter(t *testing.T) {
+	stack := newTestStack(t)
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, uuid.New())
+	stack.hive.allow(token, hiveID)
+
+	dates := []string{
+		"2026-08-01T00:00:00Z",
+		"2026-08-15T12:30:00Z",
+		"2026-09-01T23:59:59Z",
+	}
+	for _, d := range dates {
+		resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
+			"product": "HONEY", "amount": 1, "unit": "kg", "harvested_at": d,
+		})
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("seed %s: status = %d, want %d", d, resp.StatusCode, http.StatusCreated)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  int
+	}{
+		{"date_from only", "date_from=2026-08-15", 2},                                // aug15, sep1
+		{"date_to only", "date_to=2026-08-15", 2},                                    // aug1, aug15 (whole day included)
+		{"both", "date_from=2026-08-15&date_to=2026-08-31", 1},                       // only aug15
+		{"exact boundary date", "date_from=2026-09-01&date_to=2026-09-01", 1},        // sep1, harvested at 23:59:59
+		{"range matching nothing", "date_from=2026-01-01&date_to=2026-01-02", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?"+tc.query, token, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			var list pagination.Response[harvesthttp.Response]
+			decodeJSON(t, resp, &list)
+			if list.Pagination.Total != tc.want {
+				t.Fatalf("total = %d, want %d", list.Pagination.Total, tc.want)
+			}
+		})
+	}
+
+	invalidCases := []string{
+		"date_from=2026/08/01",                    // invalid format
+		"date_to=01-08-2026",                      // invalid format
+		"date_from=2026-08-01T00:00:00Z",          // full timestamp, not a date
+		"date_from=2026-09-01&date_to=2026-08-01", // date_from after date_to
+	}
+	for _, query := range invalidCases {
+		resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?"+query, token, nil)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want %d", query, resp.StatusCode, http.StatusBadRequest)
+		}
+	}
+}
+
+// TestHarvestFlow_CombinedFilters covers product+amount, product+date, and
+// filters combined with pagination, all applied together with AND
+// semantics.
 func TestHarvestFlow_CombinedFilters(t *testing.T) {
 	stack := newTestStack(t)
 	hiveID := uuid.New()
@@ -704,6 +768,47 @@ func TestHarvestFlow_CombinedFilters(t *testing.T) {
 	decodeJSON(t, resp, &list)
 	if len(list.Items) != 1 || list.Pagination.Total != 2 || list.Pagination.HasNext {
 		t.Fatalf("product+pagination page 2: got %+v, want 1 item, total=2, has_next=false", list)
+	}
+
+	// Add a fourth record, on a date outside the range used below, to
+	// prove product+date apply together with AND rather than either
+	// alone: this one matches product=HONEY but not date_from.
+	resp = stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvest", token, map[string]any{
+		"product": "HONEY", "amount": 20, "unit": "kg", "harvested_at": "2026-01-01T00:00:00Z",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("seed out-of-range honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?product=HONEY&date_from=2026-08-01", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("product+date: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	decodeJSON(t, resp, &list)
+	if list.Pagination.Total != 2 {
+		t.Fatalf("product+date: total = %d, want 2 (the two seedFilterFixture honey records, not the Jan one)", list.Pagination.Total)
+	}
+
+	// Date filter combined with pagination: date_from excludes the Jan
+	// record just added, narrowing to the 3 seedFilterFixture records
+	// (all on testHarvestedAt); limit=2 should still report the correct
+	// total across both pages.
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?date_from=2026-08-01&page=1&limit=2", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("date+pagination page 1: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	decodeJSON(t, resp, &list)
+	if len(list.Items) != 2 || list.Pagination.Total != 3 || !list.Pagination.HasNext {
+		t.Fatalf("date+pagination page 1: got %+v, want 2 items, total=3, has_next=true", list)
+	}
+
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvest?date_from=2026-08-01&page=2&limit=2", token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("date+pagination page 2: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	decodeJSON(t, resp, &list)
+	if len(list.Items) != 1 || list.Pagination.Total != 3 || list.Pagination.HasNext {
+		t.Fatalf("date+pagination page 2: got %+v, want 1 item, total=3, has_next=false", list)
 	}
 }
 

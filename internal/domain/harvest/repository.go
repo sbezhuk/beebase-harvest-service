@@ -2,6 +2,7 @@ package harvest
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -25,15 +26,19 @@ type Repository interface {
 	// ListByHive returns the page of harvest records described by p for
 	// hiveID, ordered by harvested_at DESC with id DESC as a stable
 	// secondary sort, along with the total number of matching records
-	// (independent of p, for computing pagination metadata). product and
-	// amountOperator/amount are optional filters, combined with AND when
-	// both are given: product restricts to an exact match;
-	// amountOperator/amount restrict amount by the given comparison (both
-	// must be given together, or neither). When sortOrder is non-nil
-	// ("asc" or "desc") the page is ordered by creation date in that
-	// direction instead of the default order; a nil sortOrder keeps the
-	// default order.
-	ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *Product, amountOperator *AmountOperator, amount *float64, sortOrder *string) (harvests []*Harvest, total int, err error)
+	// (independent of p, for computing pagination metadata). product,
+	// amountOperator/amount, and dateFrom/dateTo are optional filters,
+	// combined with AND when several are given: product restricts to an
+	// exact match; amountOperator/amount restrict amount by the given
+	// comparison (both must be given together, or neither); dateFrom/dateTo
+	// restrict harvested_at, independently of one another - dateFrom is an
+	// inclusive lower bound, dateTo is an exclusive upper bound that the
+	// caller has already advanced to the start of the day after the
+	// requested end date, so together they cover the requested date_to's
+	// whole calendar day. When sortOrder is non-nil ("asc" or "desc") the
+	// page is ordered by creation date in that direction instead of the
+	// default order; a nil sortOrder keeps the default order.
+	ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *Product, amountOperator *AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) (harvests []*Harvest, total int, err error)
 	// Update persists h.Product, h.Amount, h.Unit, h.HarvestedAt, and
 	// h.UpdatedAt for the harvest identified by h.ID under h.HiveID.
 	// Returns ErrNotFound under the same conditions as GetByID.

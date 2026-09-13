@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -79,7 +80,7 @@ func (r *HarvestRepository) GetByID(ctx context.Context, hiveID, harvestID uuid.
 	return &h, nil
 }
 
-func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, sortOrder *string) ([]*harvest.Harvest, int, error) {
+func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) ([]*harvest.Harvest, int, error) {
 	countQ := `SELECT count(*) FROM harvests WHERE hive_id = $1`
 	q := `
 		SELECT id, hive_id, product, amount, unit, harvested_at, created_at, updated_at
@@ -102,6 +103,22 @@ func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p 
 		countQ += cond
 		q += cond
 		countArgs = append(countArgs, *amount)
+		argIdx++
+	}
+
+	if dateFrom != nil {
+		cond := fmt.Sprintf(" AND harvested_at >= $%d", argIdx)
+		countQ += cond
+		q += cond
+		countArgs = append(countArgs, *dateFrom)
+		argIdx++
+	}
+
+	if dateTo != nil {
+		cond := fmt.Sprintf(" AND harvested_at < $%d", argIdx)
+		countQ += cond
+		q += cond
+		countArgs = append(countArgs, *dateTo)
 		argIdx++
 	}
 

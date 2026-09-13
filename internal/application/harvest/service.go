@@ -60,17 +60,17 @@ func (s *Service) Get(ctx context.Context, accessToken string, hiveID, harvestID
 
 // List returns the page of harvest records described by p for hiveID,
 // after confirming hiveID belongs to whoever presented accessToken,
-// along with the total number of matching records. product and
-// amountOperator/amount are optional filters - see
+// along with the total number of matching records. product,
+// amountOperator/amount, and dateFrom/dateTo are optional filters - see
 // harvest.Repository.ListByHive for how they combine. When sortOrder is
 // non-nil ("asc" or "desc") the page is ordered by creation date in that
 // direction instead of the repository's default order (HarvestedAt DESC).
-func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, sortOrder *string) ([]*harvest.Harvest, int, error) {
+func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) ([]*harvest.Harvest, int, error) {
 	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return nil, 0, err
 	}
 
-	return s.harvests.ListByHive(ctx, hiveID, p, product, amountOperator, amount, sortOrder)
+	return s.harvests.ListByHive(ctx, hiveID, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
 }
 
 // Update replaces the editable fields of the harvest identified by

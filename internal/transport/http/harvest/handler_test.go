@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	appharvest "github.com/sbezhuk/beebase-harvest-service/internal/application/harvest"
 	"github.com/sbezhuk/beebase-harvest-service/internal/domain/harvest"
@@ -201,6 +202,99 @@ func TestParseAmountFilter(t *testing.T) {
 }
 
 func amountOperatorPtr(o harvest.AmountOperator) *harvest.AmountOperator { return &o }
+
+func TestParseDateFilter(t *testing.T) {
+	utcDate := func(y int, m time.Month, d int) time.Time {
+		return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	}
+
+	cases := []struct {
+		name         string
+		query        string
+		wantDateFrom *time.Time
+		wantDateTo   *time.Time
+		wantFields   map[string]string
+	}{
+		{name: "omitted"},
+		{
+			name:         "date_from only",
+			query:        "date_from=2026-01-01",
+			wantDateFrom: timePtr(utcDate(2026, 1, 1)),
+		},
+		{
+			// date_to is returned as the exclusive start of the next day.
+			name:       "date_to only",
+			query:      "date_to=2026-09-13",
+			wantDateTo: timePtr(utcDate(2026, 9, 14)),
+		},
+		{
+			name:         "both",
+			query:        "date_from=2026-01-01&date_to=2026-09-13",
+			wantDateFrom: timePtr(utcDate(2026, 1, 1)),
+			wantDateTo:   timePtr(utcDate(2026, 9, 14)),
+		},
+		{
+			name:         "exact boundary: date_from equals date_to",
+			query:        "date_from=2026-09-13&date_to=2026-09-13",
+			wantDateFrom: timePtr(utcDate(2026, 9, 13)),
+			wantDateTo:   timePtr(utcDate(2026, 9, 14)),
+		},
+		{
+			name:       "invalid date_from format",
+			query:      "date_from=2026/01/01",
+			wantFields: map[string]string{"date_from": CodeInvalidDateFrom},
+		},
+		{
+			name:       "invalid date_to format",
+			query:      "date_to=13-09-2026",
+			wantFields: map[string]string{"date_to": CodeInvalidDateTo},
+		},
+		{
+			name:       "date_from is a full timestamp, not a date",
+			query:      "date_from=2026-01-01T00:00:00Z",
+			wantFields: map[string]string{"date_from": CodeInvalidDateFrom},
+		},
+		{
+			name:       "date_from after date_to",
+			query:      "date_from=2026-09-14&date_to=2026-09-13",
+			wantFields: map[string]string{"date_to": CodeInvalidDateRange},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/?"+tc.query, nil)
+			dateFrom, dateTo, fields := parseDateFilter(req, nil)
+			if len(tc.wantFields) > 0 {
+				for field, code := range tc.wantFields {
+					if fields[field] != code {
+						t.Fatalf("fields[%q] = %q, want %q", field, fields[field], code)
+					}
+				}
+				return
+			}
+			if len(fields) != 0 {
+				t.Fatalf("unexpected fields: %v", fields)
+			}
+			if tc.wantDateFrom == nil {
+				if dateFrom != nil {
+					t.Fatalf("dateFrom = %v, want nil", *dateFrom)
+				}
+			} else if dateFrom == nil || !dateFrom.Equal(*tc.wantDateFrom) {
+				t.Fatalf("dateFrom = %v, want %v", dateFrom, *tc.wantDateFrom)
+			}
+			if tc.wantDateTo == nil {
+				if dateTo != nil {
+					t.Fatalf("dateTo = %v, want nil", *dateTo)
+				}
+			} else if dateTo == nil || !dateTo.Equal(*tc.wantDateTo) {
+				t.Fatalf("dateTo = %v, want %v", dateTo, *tc.wantDateTo)
+			}
+		})
+	}
+}
+
+func timePtr(t time.Time) *time.Time { return &t }
 
 func TestParseSortOrder(t *testing.T) {
 	strPtr := func(s string) *string { return &s }

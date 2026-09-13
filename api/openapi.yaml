@@ -124,10 +124,11 @@ paths:
         harvested_at descending (id descending as a stable secondary sort
         for equal harvested_at values) - an empty page if the hive has
         none yet, or if no record matches the given filters. Omitting
-        page/limit falls back to page=1, limit=20. product and
-        amount_operator/amount are optional filters, combinable with
-        each other and with pagination using AND semantics. Rejected with
-        404 hive_not_found under the same conditions as POST.
+        page/limit falls back to page=1, limit=20. product,
+        amount_operator/amount, and date_from/date_to are optional
+        filters, combinable with each other and with pagination using AND
+        semantics. Rejected with 404 hive_not_found under the same
+        conditions as POST.
       parameters:
         - name: page
           in: query
@@ -159,6 +160,26 @@ paths:
             amount field.
           required: false
           schema: { type: number, minimum: 0 }
+        - name: date_from
+          in: query
+          description: >
+            Optional inclusive lower bound on harvested_at, as an ISO 8601
+            calendar date (YYYY-MM-DD, no time-of-day). Matches the whole
+            of that calendar day onward. Independent of date_to - each may
+            be given alone - but when both are given, date_from must not
+            fall after date_to.
+          required: false
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          description: >
+            Optional inclusive upper bound on harvested_at, as an ISO 8601
+            calendar date (YYYY-MM-DD, no time-of-day). Matches the whole
+            of that calendar day, through its last instant. Independent of
+            date_from - each may be given alone - but when both are given,
+            date_from must not fall after date_to.
+          required: false
+          schema: { type: string, format: date }
         - name: sortOrder
           in: query
           description: >
@@ -185,7 +206,9 @@ paths:
         "400":
           description: >
             hiveId is not a valid UUID, or page, limit, product,
-            amount_operator, amount, or sortOrder is invalid.
+            amount_operator, amount, date_from, date_to, or sortOrder is
+            invalid - including date_from/date_to not matching
+            YYYY-MM-DD, or date_from falling after date_to.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
@@ -464,5 +487,8 @@ components:
                   - invalid_product
                   - invalid_amount_operator
                   - invalid_amount
+                  - invalid_date_from
+                  - invalid_date_to
+                  - invalid_date_range
                   - invalid_sort_order
               example: { product: "product_invalid" }

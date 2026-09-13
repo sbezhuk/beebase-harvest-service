@@ -37,8 +37,17 @@ const (
 	CodeInvalidProduct        = "invalid_product"
 	CodeInvalidAmountOperator = "invalid_amount_operator"
 	CodeInvalidAmount         = "invalid_amount"
+	CodeInvalidDateFrom       = "invalid_date_from"
+	CodeInvalidDateTo         = "invalid_date_to"
+	CodeInvalidDateRange      = "invalid_date_range"
 	CodeInvalidSortOrder      = "invalid_sort_order"
 )
+
+// dateFilterLayout is the ISO 8601 calendar-date format the date_from/
+// date_to query parameters must use - a date only, no time-of-day or
+// offset (unlike harvested_at in the request body, which is a full RFC
+// 3339 timestamp).
+const dateFilterLayout = "2006-01-02"
 
 // Handler exposes the harvest HTTP endpoints. Every method requires the
 // request to have already passed through httpmw.RequireAuth.
@@ -126,13 +135,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	p, fields := pagination.ParseParams(r)
 	product, fields := parseProductFilter(r, fields)
 	amountOperator, amount, fields := parseAmountFilter(r, fields)
+	dateFrom, dateTo, fields := parseDateFilter(r, fields)
 	sortOrder, fields := parseSortOrder(r, fields)
 	if len(fields) > 0 {
 		httpx.WriteValidationError(w, fields)
 		return
 	}
 
-	harvests, total, err := h.service.List(r.Context(), token, hiveID, p, product, amountOperator, amount, sortOrder)
+	harvests, total, err := h.service.List(r.Context(), token, hiveID, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return
@@ -195,6 +205,60 @@ func parseAmountFilter(r *http.Request, fields map[string]string) (*harvest.Amou
 	}
 
 	return operator, amount, fields
+}
+
+// parseDateFilter reads the optional "date_from"/"date_to" query
+// parameters: each is an ISO 8601 calendar date (YYYY-MM-DD), independently
+// optional, restricting harvested_at. date_from is returned as that day's
+// start (00:00:00 UTC), an inclusive lower bound. date_to is returned as
+// the start of the following day (00:00:00 UTC), an exclusive upper bound
+// - since the filter must match the requested day in full, "harvested_at
+// < date_to" (the day after) does the same job as an inclusive same-day
+// upper bound would, without depending on the column's time resolution.
+// When both are given, date_from must not fall after date_to (as calendar
+// dates, not as the adjusted bounds returned here); given alone, each
+// applies independently, and neither requires the other.
+func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateTo *time.Time, _ map[string]string) {
+	rawFrom := r.URL.Query().Get("date_from")
+	rawTo := r.URL.Query().Get("date_to")
+
+	var fromDay, toDay *time.Time
+
+	if rawFrom != "" {
+		parsed, err := time.Parse(dateFilterLayout, rawFrom)
+		if err != nil {
+			if fields == nil {
+				fields = map[string]string{}
+			}
+			fields["date_from"] = CodeInvalidDateFrom
+		} else {
+			fromDay = &parsed
+			dateFrom = &parsed
+		}
+	}
+
+	if rawTo != "" {
+		parsed, err := time.Parse(dateFilterLayout, rawTo)
+		if err != nil {
+			if fields == nil {
+				fields = map[string]string{}
+			}
+			fields["date_to"] = CodeInvalidDateTo
+		} else {
+			toDay = &parsed
+			exclusive := parsed.AddDate(0, 0, 1)
+			dateTo = &exclusive
+		}
+	}
+
+	if fromDay != nil && toDay != nil && fromDay.After(*toDay) {
+		if fields == nil {
+			fields = map[string]string{}
+		}
+		fields["date_to"] = CodeInvalidDateRange
+	}
+
+	return dateFrom, dateTo, fields
 }
 
 // parseSortOrder reads the optional "sortOrder" query parameter, which

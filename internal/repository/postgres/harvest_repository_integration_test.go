@@ -118,7 +118,7 @@ func TestHarvestRepository_Create_MultipleRecordsForSameProduct(t *testing.T) {
 		t.Fatalf("second Create for same product: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestHarvestRepository_ListByHive(t *testing.T) {
 		t.Fatalf("create wax in other hive: %v", err)
 	}
 
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestHarvestRepository_ListByHive_Empty(t *testing.T) {
 
 	repo := repopostgres.NewHarvestRepository(tx)
 
-	list, total, err := repo.ListByHive(ctx, uuid.New(), pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, uuid.New(), pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestHarvestRepository_ListByHive_OrderedByHarvestedAtDescWithIDTiebreak(t *
 		}
 	}
 
-	list, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil)
+	list, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestHarvestRepository_ListByHive_SortOrder(t *testing.T) {
 	}
 
 	asc := "asc"
-	ascending, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, &asc)
+	ascending, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, nil, &asc)
 	if err != nil {
 		t.Fatalf("ListByHive asc: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestHarvestRepository_ListByHive_SortOrder(t *testing.T) {
 	}
 
 	desc := "desc"
-	descending, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, &desc)
+	descending, _, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, nil, &desc)
 	if err != nil {
 		t.Fatalf("ListByHive desc: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestHarvestRepository_ListByHive_Pagination(t *testing.T) {
 		}
 	}
 
-	page1, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil, nil)
+	page1, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 2}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 1: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestHarvestRepository_ListByHive_Pagination(t *testing.T) {
 		t.Fatalf("page 1/total = %d/%d, want 2/5", len(page1), total)
 	}
 
-	page3, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil, nil)
+	page3, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 3, Limit: 2}, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive page 3: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestHarvestRepository_ListByHive_ProductFilter(t *testing.T) {
 	}
 
 	product := harvest.ProductPollen
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, nil, nil, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 
 	gt := harvest.AmountOperatorGT
 	ten := 10.0
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &gt, &ten, nil)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &gt, &ten, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive gt: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 
 	lt := harvest.AmountOperatorLT
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &lt, &ten, nil)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &lt, &ten, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive lt: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 
 	eq := harvest.AmountOperatorEQ
-	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &eq, &ten, nil)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, &eq, &ten, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ListByHive eq: %v", err)
 	}
@@ -429,8 +429,77 @@ func TestHarvestRepository_ListByHive_AmountFilter(t *testing.T) {
 	}
 }
 
+// TestHarvestRepository_ListByHive_DateFilter proves date_from/date_to
+// each apply independently, together cover an inclusive range at day
+// granularity, and reject nothing when the boundary dates exactly match a
+// record's harvested_at.
+func TestHarvestRepository_ListByHive_DateFilter(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	repo := repopostgres.NewHarvestRepository(tx)
+	hiveID := uuid.New()
+
+	aug1 := harvest.New(hiveID, harvest.ProductHoney, 1, harvest.UnitKilogram, time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	aug15 := harvest.New(hiveID, harvest.ProductHoney, 2, harvest.UnitKilogram, time.Date(2026, 8, 15, 12, 30, 0, 0, time.UTC))
+	sep1 := harvest.New(hiveID, harvest.ProductHoney, 3, harvest.UnitKilogram, time.Date(2026, 9, 1, 23, 59, 59, 0, time.UTC))
+	for _, h := range []*harvest.Harvest{aug1, aug15, sep1} {
+		if err := repo.Create(ctx, h); err != nil {
+			t.Fatalf("create %v: %v", h, err)
+		}
+	}
+
+	// date_from only: everything on or after Aug 15.
+	from := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, &from, nil, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_from: %v", err)
+	}
+	if total != 2 || len(list) != 2 {
+		t.Fatalf("ListByHive date_from=%v = %+v (total=%d), want aug15 and sep1", from, list, total)
+	}
+
+	// date_to only: everything up to and including the whole day of Aug 15
+	// - passed as the exclusive start of Aug 16, matching what the HTTP
+	// handler's parseDateFilter computes for a date_to of Aug 15.
+	to := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, &to, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_to: %v", err)
+	}
+	if total != 2 || len(list) != 2 {
+		t.Fatalf("ListByHive date_to=%v = %+v (total=%d), want aug1 and aug15", to, list, total)
+	}
+
+	// Both together: only Aug 15 falls within [Aug 15, Aug 16).
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, &from, &to, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_from+date_to: %v", err)
+	}
+	if total != 1 || len(list) != 1 || list[0].ID != aug15.ID {
+		t.Fatalf("ListByHive date_from=%v date_to=%v = %+v (total=%d), want only aug15", from, to, list, total)
+	}
+
+	// Exact boundary: a date_to of Sep 1 (exclusive bound Sep 2) must still
+	// include a record harvested at 23:59:59 on Sep 1.
+	sep1Exclusive := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	list, total, err = repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, nil, nil, nil, nil, &sep1Exclusive, nil)
+	if err != nil {
+		t.Fatalf("ListByHive date_to boundary: %v", err)
+	}
+	if total != 3 || len(list) != 3 {
+		t.Fatalf("ListByHive date_to=%v = %+v (total=%d), want all 3 (whole day of sep1 included)", sep1Exclusive, list, total)
+	}
+}
+
 // TestHarvestRepository_ListByHive_CombinedFilters proves product,
-// amount, and pagination all apply together with AND semantics.
+// amount, date, and pagination all apply together with AND semantics.
 func TestHarvestRepository_ListByHive_CombinedFilters(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
@@ -450,7 +519,9 @@ func TestHarvestRepository_ListByHive_CombinedFilters(t *testing.T) {
 	wrongAmount := harvest.New(hiveID, harvest.ProductHoney, 5, harvest.UnitKilogram, testHarvestedAt)
 	// Right amount, wrong product.
 	wrongProduct := harvest.New(hiveID, harvest.ProductWax, 15, harvest.UnitGram, testHarvestedAt)
-	for _, h := range []*harvest.Harvest{match, wrongAmount, wrongProduct} {
+	// Right product and amount, wrong date.
+	wrongDate := harvest.New(hiveID, harvest.ProductHoney, 15, harvest.UnitKilogram, testHarvestedAt.AddDate(0, 1, 0))
+	for _, h := range []*harvest.Harvest{match, wrongAmount, wrongProduct, wrongDate} {
 		if err := repo.Create(ctx, h); err != nil {
 			t.Fatalf("create %v: %v", h, err)
 		}
@@ -459,7 +530,9 @@ func TestHarvestRepository_ListByHive_CombinedFilters(t *testing.T) {
 	product := harvest.ProductHoney
 	gt := harvest.AmountOperatorGT
 	ten := 10.0
-	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, &gt, &ten, nil)
+	from := testHarvestedAt
+	to := testHarvestedAt.AddDate(0, 0, 1)
+	list, total, err := repo.ListByHive(ctx, hiveID, pagination.Params{Page: 1, Limit: 20}, &product, &gt, &ten, &from, &to, nil)
 	if err != nil {
 		t.Fatalf("ListByHive combined: %v", err)
 	}
