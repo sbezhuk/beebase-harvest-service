@@ -1,5 +1,5 @@
-// Package harvest holds the HTTP handlers for harvest records nested
-// under a hive. Handlers stay thin: they decode/validate the request,
+// Package harvest holds the HTTP handlers for harvest records. Handlers stay
+// thin: they decode/validate the request,
 // pull the hiveID (and, for mutating endpoints, harvestID) and the
 // caller's raw access token off the request, call into the application
 // service, and map the result (or error) to a response. No business
@@ -61,7 +61,7 @@ func NewHandler(service *appharvest.Service, log *slog.Logger) *Handler {
 	return &Handler{service: service, log: log}
 }
 
-// Create handles POST /hives/{hiveID}/harvest.
+// Create handles POST /hives/{hiveID}/harvests.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -94,7 +94,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, newResponse(created))
 }
 
-// Get handles GET /hives/{hiveID}/harvest/{harvestID}.
+// Get handles GET /hives/{hiveID}/harvests/{harvestID}.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -120,7 +120,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, newResponse(got))
 }
 
-// List handles GET /hives/{hiveID}/harvest.
+// List handles GET /hives/{hiveID}/harvests.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -148,6 +148,31 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(harvests), p, total))
+}
+
+// ListAll handles GET /api/v1/harvests.
+func (h *Handler) ListAll(w http.ResponseWriter, r *http.Request) {
+	token, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+
+	p, fields := pagination.ParseParams(r)
+	product, fields := parseProductFilter(r, fields)
+	amountOperator, amount, fields := parseAmountFilter(r, fields)
+	dateFrom, dateTo, fields := parseDateFilter(r, fields)
+	sortOrder, fields := parseSortOrder(r, fields)
+	if len(fields) > 0 {
+		httpx.WriteValidationError(w, fields)
+		return
+	}
+
+	harvests, total, err := h.service.ListAll(r.Context(), token, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
+	if err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
 	httpx.WriteJSON(w, http.StatusOK, pagination.NewResponse(newListResponse(harvests), p, total))
 }
 
@@ -283,7 +308,7 @@ func parseSortOrder(r *http.Request, fields map[string]string) (*string, map[str
 	return &s, fields
 }
 
-// Update handles PUT /hives/{hiveID}/harvest/{harvestID}.
+// Update handles PUT /hives/{hiveID}/harvests/{harvestID}.
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -321,7 +346,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, newResponse(updated))
 }
 
-// Delete handles DELETE /hives/{hiveID}/harvest/{harvestID}.
+// Delete handles DELETE /hives/{hiveID}/harvests/{harvestID}.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {

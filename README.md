@@ -51,11 +51,11 @@ curl http://localhost:8080/ready    # readiness — 200 only if the database is 
 TOKEN=...   # an access_token from auth-service's /api/v1/auth/register or /login
 HIVE_ID=... # a hive that TOKEN's owner created via hive-service
 
-curl -X POST http://localhost:8080/api/v1/hives/$HIVE_ID/harvest \
+curl -X POST http://localhost:8080/api/v1/hives/$HIVE_ID/harvests \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"product":"HONEY","amount":12.5,"unit":"kg","harvested_at":"2026-09-01T00:00:00Z"}'
 
-curl "http://localhost:8080/api/v1/hives/$HIVE_ID/harvest" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8080/api/v1/hives/$HIVE_ID/harvests" -H "Authorization: Bearer $TOKEN"
 ```
 
 The full API surface is documented in [api/openapi.yaml](api/openapi.yaml).
@@ -129,7 +129,7 @@ accepts certain units (no automatic conversion, e.g. Honey is never
 converted between `kg` and `l`): `HONEY` → `kg`/`l`, `POLLEN` → `g`/`kg`,
 `PROPOLIS` → `g`, `WAX` → `g`. `amount` must be `>= 0`.
 
-`GET /api/v1/hives/{hiveId}/harvest` returns a page of records ordered
+`GET /api/v1/hives/{hiveId}/harvests` returns a page of records ordered
 by `harvested_at` descending (`id` descending as a stable secondary sort
 for equal `harvested_at` values); `?page=`/`?limit=` control pagination
 (defaults 1/20, `limit` capped at 100). It also supports filtering,
@@ -139,6 +139,9 @@ combinable with pagination (AND semantics):
   `PROPOLIS`, `WAX`;
 - `?amount_operator=`/`?amount=` - filters by amount using `gt`, `lt`,
   or `eq`; both must be given together, e.g. `?amount_operator=gt&amount=10`.
+
+`GET /api/v1/harvests` uses the same filters, sorting, and pagination to
+return records across all hives owned by the authenticated user.
 
 ## Ownership
 

@@ -4,6 +4,7 @@ package hiveclient
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -24,6 +25,15 @@ const requestTimeout = 5 * time.Second
 type Client struct {
 	baseURL string
 	http    *http.Client
+}
+
+type hivePage struct {
+	Items []struct {
+		ID uuid.UUID `json:"id"`
+	} `json:"items"`
+	Pagination struct {
+		TotalPages int `json:"total_pages"`
+	} `json:"pagination"`
 }
 
 // New returns a Client that calls hive-service at baseURL (e.g.
@@ -63,5 +73,38 @@ func (c *Client) Verify(ctx context.Context, accessToken string, hiveID uuid.UUI
 		// found", which would mask a real problem (e.g. hive-service
 		// misconfigured or unreachable) as a client-facing 404.
 		return fmt.Errorf("hiveclient: unexpected status %d from hive-service", resp.StatusCode)
+	}
+}
+
+// ListOwned implements application/harvest.OwnedHiveLister by paging through
+// hive-service's user-scoped global hive list.
+func (c *Client) ListOwned(ctx context.Context, accessToken string) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+	for page := 1; ; page++ {
+		u := fmt.Sprintf("%s/api/v1/hives?page=%d&limit=100", c.baseURL, page)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, fmt.Errorf("hiveclient: build list request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("hiveclient: list hives: %w", err)
+		}
+		var body hivePage
+		decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("hiveclient: unexpected status %d from hive-service", resp.StatusCode)
+		}
+		if decodeErr != nil {
+			return nil, fmt.Errorf("hiveclient: decode hive list: %w", decodeErr)
+		}
+		for _, item := range body.Items {
+			ids = append(ids, item.ID)
+		}
+		if page >= body.Pagination.TotalPages || len(body.Items) == 0 {
+			return ids, nil
+		}
 	}
 }

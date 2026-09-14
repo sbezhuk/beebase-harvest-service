@@ -66,14 +66,14 @@ type Request struct {
 	HarvestedAt string `json:"harvested_at"`
 }
 
-// CreateRequest is the body of POST /hives/{hiveId}/harvest.
+// CreateRequest is the body of POST /hives/{hiveId}/harvests.
 type CreateRequest Request
 
 func (r *CreateRequest) Validate() map[string]string {
 	return Request(*r).validate()
 }
 
-// UpdateRequest is the body of PUT /hives/{hiveId}/harvest/{harvestId}.
+// UpdateRequest is the body of PUT /hives/{hiveId}/harvests/{harvestId}.
 type UpdateRequest Request
 
 func (r *UpdateRequest) Validate() map[string]string {
