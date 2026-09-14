@@ -61,7 +61,7 @@ func NewHandler(service *appharvest.Service, log *slog.Logger) *Handler {
 	return &Handler{service: service, log: log}
 }
 
-// Create handles POST /hives/{hiveID}/harvest.
+// Create handles POST /hives/{hiveID}/harvests.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -94,7 +94,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, newResponse(created))
 }
 
-// Get handles GET /hives/{hiveID}/harvest/{harvestID}.
+// Get handles GET /hives/{hiveID}/harvests/{harvestID}.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -120,7 +120,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, newResponse(got))
 }
 
-// List handles GET /hives/{hiveID}/harvest.
+// List handles GET /hives/{hiveID}/harvests.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -308,7 +308,7 @@ func parseSortOrder(r *http.Request, fields map[string]string) (*string, map[str
 	return &s, fields
 }
 
-// Update handles PUT /hives/{hiveID}/harvest/{harvestID}.
+// Update handles PUT /hives/{hiveID}/harvests/{harvestID}.
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {
@@ -346,7 +346,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, newResponse(updated))
 }
 
-// Delete handles DELETE /hives/{hiveID}/harvest/{harvestID}.
+// Delete handles DELETE /hives/{hiveID}/harvests/{harvestID}.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	token, ok := h.requireAuth(w, r)
 	if !ok {

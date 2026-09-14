@@ -51,7 +51,7 @@ curl http://localhost:8080/ready    # readiness — 200 only if the database is 
 TOKEN=...   # an access_token from auth-service's /api/v1/auth/register or /login
 HIVE_ID=... # a hive that TOKEN's owner created via hive-service
 
-curl -X POST http://localhost:8080/api/v1/hives/$HIVE_ID/harvest \
+curl -X POST http://localhost:8080/api/v1/hives/$HIVE_ID/harvests \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"product":"HONEY","amount":12.5,"unit":"kg","harvested_at":"2026-09-01T00:00:00Z"}'
 

@@ -292,7 +292,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
 
-  /api/v1/hives/{hiveId}/harvest/{harvestId}:
+  /api/v1/hives/{hiveId}/harvests/{harvestId}:
     parameters:
       - name: hiveId
         in: path
@@ -402,9 +402,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
-
-  /api/v1/hives/{hiveId}/harvest:
-    $ref: "#/paths/~1api~1v1~1hives~1{hiveId}~1harvests"
 
 components:
   securitySchemes:
