@@ -115,7 +115,7 @@ func (r *HarvestRepository) List(ctx context.Context, hiveIDs []uuid.UUID, p pag
 	}
 
 	if dateTo != nil {
-		cond := fmt.Sprintf(" AND harvested_at < $%d", argIdx)
+		cond := fmt.Sprintf(" AND harvested_at <= $%d", argIdx)
 		countQ += cond
 		q += cond
 		countArgs = append(countArgs, *dateTo)
