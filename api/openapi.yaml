@@ -30,7 +30,7 @@ tags:
   - name: system
     description: Liveness and readiness probes.
   - name: harvest
-    description: Create, read, update, and delete harvest records nested under one of the caller's own hives.
+    description: Create, read, update, and delete harvest records. Lists are available globally and nested under a hive.
 
 security:
   - bearerAuth: []
@@ -67,7 +67,76 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/StatusResponse" }
 
-  /api/v1/hives/{hiveId}/harvest:
+  /api/v1/harvests:
+    get:
+      tags: [harvest]
+      summary: List all harvest records belonging to the authenticated user
+      description: >
+        Returns a paginated, stable-ordered page of harvest records across
+        every hive owned by the authenticated user. Ownership is resolved
+        through hive-service; records belonging to another user are never
+        included. This is the cross-hive aggregation endpoint. For normal
+        navigation from a hive, use the nested endpoint below.
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: product
+          in: query
+          schema: { $ref: "#/components/schemas/HarvestProduct" }
+        - name: amount_operator
+          in: query
+          description: Must be supplied together with amount; supports gt, lt, and eq.
+          schema: { $ref: "#/components/schemas/AmountOperator" }
+        - name: amount
+          in: query
+          description: Must be supplied together with amount_operator; non-negative amount to compare.
+          schema: { type: number, minimum: 0 }
+        - name: date_from
+          in: query
+          description: Inclusive harvested_at lower bound as YYYY-MM-DD.
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          description: Inclusive harvested_at upper bound as YYYY-MM-DD; date_from must not be later.
+          schema: { type: string, format: date }
+        - name: sortOrder
+          in: query
+          description: Sort by created_at when set; otherwise harvested_at descending.
+          schema: { type: string, enum: [asc, desc] }
+      responses:
+        "200":
+          description: A page of the authenticated user's harvest records across all hives.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, pagination]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/HarvestResponse" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "400":
+          description: One or more pagination, filter, date, or sort parameters are invalid.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
+        "401":
+          description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          description: An internal database or hive-service dependency failure.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/hives/{hiveId}/harvests:
     parameters:
       - name: hiveId
         in: path
@@ -333,6 +402,9 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /api/v1/hives/{hiveId}/harvest:
+    $ref: "#/paths/~1api~1v1~1hives~1{hiveId}~1harvests"
 
 components:
   securitySchemes:

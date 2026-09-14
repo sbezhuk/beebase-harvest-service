@@ -80,14 +80,14 @@ func (r *HarvestRepository) GetByID(ctx context.Context, hiveID, harvestID uuid.
 	return &h, nil
 }
 
-func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) ([]*harvest.Harvest, int, error) {
-	countQ := `SELECT count(*) FROM harvests WHERE hive_id = $1`
+func (r *HarvestRepository) List(ctx context.Context, hiveIDs []uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) ([]*harvest.Harvest, int, error) {
+	countQ := `SELECT count(*) FROM harvests WHERE hive_id = ANY($1)`
 	q := `
 		SELECT id, hive_id, product, amount, unit, harvested_at, created_at, updated_at
 		FROM harvests
-		WHERE hive_id = $1
+		WHERE hive_id = ANY($1)
 	`
-	countArgs := []any{hiveID}
+	countArgs := []any{hiveIDs}
 	argIdx := 2
 
 	if product != nil {
@@ -154,6 +154,10 @@ func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p 
 	}
 
 	return harvests, total, nil
+}
+
+func (r *HarvestRepository) ListByHive(ctx context.Context, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) ([]*harvest.Harvest, int, error) {
+	return r.List(ctx, []uuid.UUID{hiveID}, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
 }
 
 func (r *HarvestRepository) Update(ctx context.Context, h *harvest.Harvest) error {

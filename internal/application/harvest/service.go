@@ -70,7 +70,29 @@ func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID
 		return nil, 0, err
 	}
 
+	if scoped, ok := s.harvests.(harvest.ScopedRepository); ok {
+		return scoped.List(ctx, []uuid.UUID{hiveID}, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
+	}
 	return s.harvests.ListByHive(ctx, hiveID, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
+}
+
+// ListAll returns the page of harvest records across every hive owned by the
+// caller. Hive-service supplies the owned hive IDs; the repository then
+// applies the same filters, ordering, and pagination as the nested list.
+func (s *Service) ListAll(ctx context.Context, accessToken string, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) ([]*harvest.Harvest, int, error) {
+	lister, ok := s.hives.(OwnedHiveLister)
+	if !ok {
+		return nil, 0, fmt.Errorf("harvest: hive verifier does not support listing owned hives")
+	}
+	hiveIDs, err := lister.ListOwned(ctx, accessToken)
+	if err != nil {
+		return nil, 0, fmt.Errorf("harvest: list owned hives: %w", err)
+	}
+	scoped, ok := s.harvests.(harvest.ScopedRepository)
+	if !ok {
+		return nil, 0, fmt.Errorf("harvest: repository does not support cross-hive listing")
+	}
+	return scoped.List(ctx, hiveIDs, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
 }
 
 // Update replaces the editable fields of the harvest identified by

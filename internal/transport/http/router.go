@@ -34,14 +34,18 @@ func NewRouter(
 
 	r.Group(func(r chi.Router) {
 		r.Use(httpmw.RequireAuth(tokenParser))
+		r.Get("/api/v1/harvests", harvestHandler.ListAll)
+		r.Get("/api/v1/harvests/", harvestHandler.ListAll)
 
-		r.Route("/api/v1/hives/{hiveID}/harvest", func(r chi.Router) {
-			r.Post("/", harvestHandler.Create)
-			r.Get("/", harvestHandler.List)
-			r.Get("/{harvestID}", harvestHandler.Get)
-			r.Put("/{harvestID}", harvestHandler.Update)
-			r.Delete("/{harvestID}", harvestHandler.Delete)
-		})
+		for _, path := range []string{"/api/v1/hives/{hiveID}/harvest", "/api/v1/hives/{hiveID}/harvests"} {
+			r.Route(path, func(r chi.Router) {
+				r.Post("/", harvestHandler.Create)
+				r.Get("/", harvestHandler.List)
+				r.Get("/{harvestID}", harvestHandler.Get)
+				r.Put("/{harvestID}", harvestHandler.Update)
+				r.Delete("/{harvestID}", harvestHandler.Delete)
+			})
+		}
 	})
 
 	return r

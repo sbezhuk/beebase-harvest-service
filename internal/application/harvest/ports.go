@@ -21,3 +21,11 @@ import (
 type HiveVerifier interface {
 	Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) error
 }
+
+// OwnedHiveLister is implemented by the hive-service client used for the
+// cross-hive harvest list. It deliberately remains separate from
+// HiveVerifier so hive-scoped use cases only need the narrow verification
+// capability they already had.
+type OwnedHiveLister interface {
+	ListOwned(ctx context.Context, accessToken string) ([]uuid.UUID, error)
+}
