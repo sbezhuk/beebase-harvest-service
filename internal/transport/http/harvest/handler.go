@@ -7,6 +7,7 @@
 package harvest
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -52,13 +53,22 @@ const dateFilterLayout = "2006-01-02"
 // Handler exposes the harvest HTTP endpoints. Every method requires the
 // request to have already passed through httpmw.RequireAuth.
 type Handler struct {
-	service *appharvest.Service
-	log     *slog.Logger
+	service   *appharvest.Service
+	log       *slog.Logger
+	reminders interface {
+		Cleanup(context.Context, string, uuid.UUID) error
+	}
 }
 
 // NewHandler returns a Handler backed by service.
-func NewHandler(service *appharvest.Service, log *slog.Logger) *Handler {
-	return &Handler{service: service, log: log}
+func NewHandler(service *appharvest.Service, log *slog.Logger, reminders ...interface {
+	Cleanup(context.Context, string, uuid.UUID) error
+}) *Handler {
+	h := &Handler{service: service, log: log}
+	if len(reminders) > 0 {
+		h.reminders = reminders[0]
+	}
+	return h
 }
 
 // Create handles POST /hives/{hiveID}/harvests.
@@ -369,6 +379,11 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+	if h.reminders != nil {
+		if err := h.reminders.Cleanup(r.Context(), "harvest", harvestID); err != nil {
+			h.log.Warn("reminder cleanup failed", "entity_type", "harvest", "entity_id", harvestID, "error", err)
+		}
+	}
 }
 
 // requireAuth returns the caller's raw access token (read off the

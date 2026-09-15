@@ -33,14 +33,16 @@ type Config struct {
 	// AuthJWKSURL points at auth-service's public key endpoint
 	// (GET /.well-known/jwks.json), used to verify access tokens without
 	// ever holding a key that could mint one.
-	AuthJWKSURL string
+	AuthJWKSURL          string
+	InternalServiceToken string
 
 	// HiveServiceURL is hive-service's base URL. Harvest has no ownership
 	// data of its own: every operation confirms the caller owns the
 	// specified hive by forwarding their own access token to hive-service's
 	// GET /api/v1/hives/{id}, on every call - not just once at creation
 	// time (see application/harvest.HiveVerifier).
-	HiveServiceURL string
+	HiveServiceURL         string
+	NotificationServiceURL string
 }
 
 // Load builds a Config from environment variables, falling back to
@@ -63,8 +65,9 @@ func Load() (*Config, error) {
 
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
-		AuthJWKSURL:    getEnv("AUTH_JWKS_URL", ""),
-		HiveServiceURL: getEnv("HIVE_SERVICE_URL", ""),
+		AuthJWKSURL: getEnv("AUTH_JWKS_URL", ""), InternalServiceToken: getEnv("INTERNAL_SERVICE_TOKEN", ""),
+		HiveServiceURL:         getEnv("HIVE_SERVICE_URL", ""),
+		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", ""),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -75,6 +78,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.AuthJWKSURL == "" {
 		return nil, fmt.Errorf("config: AUTH_JWKS_URL is required")
+	}
+	if cfg.InternalServiceToken == "" {
+		return nil, fmt.Errorf("config: INTERNAL_SERVICE_TOKEN is required")
 	}
 	if cfg.HiveServiceURL == "" {
 		return nil, fmt.Errorf("config: HIVE_SERVICE_URL is required")
