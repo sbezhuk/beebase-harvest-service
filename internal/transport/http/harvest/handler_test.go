@@ -125,46 +125,46 @@ func TestParseAmountFilter(t *testing.T) {
 		{name: "omitted", query: ""},
 		{
 			name:         "gt",
-			query:        "amount_operator=gt&amount=10",
+			query:        "amountOperator=gt&amount=10",
 			wantOperator: amountOperatorPtr(harvest.AmountOperatorGT),
 			wantAmount:   amountPtr(10),
 		},
 		{
 			name:         "lt",
-			query:        "amount_operator=lt&amount=10",
+			query:        "amountOperator=lt&amount=10",
 			wantOperator: amountOperatorPtr(harvest.AmountOperatorLT),
 			wantAmount:   amountPtr(10),
 		},
 		{
 			name:         "eq",
-			query:        "amount_operator=eq&amount=10",
+			query:        "amountOperator=eq&amount=10",
 			wantOperator: amountOperatorPtr(harvest.AmountOperatorEQ),
 			wantAmount:   amountPtr(10),
 		},
 		{
 			name:       "invalid operator",
-			query:      "amount_operator=gte&amount=10",
-			wantFields: map[string]string{"amount_operator": CodeInvalidAmountOperator},
+			query:      "amountOperator=gte&amount=10",
+			wantFields: map[string]string{"amountOperator": CodeInvalidAmountOperator},
 		},
 		{
 			name:       "invalid amount",
-			query:      "amount_operator=gt&amount=notanumber",
+			query:      "amountOperator=gt&amount=notanumber",
 			wantFields: map[string]string{"amount": CodeInvalidAmount},
 		},
 		{
 			name:       "negative amount",
-			query:      "amount_operator=gt&amount=-1",
+			query:      "amountOperator=gt&amount=-1",
 			wantFields: map[string]string{"amount": CodeInvalidAmount},
 		},
 		{
 			name:       "operator without amount",
-			query:      "amount_operator=gt",
+			query:      "amountOperator=gt",
 			wantFields: map[string]string{"amount": CodeInvalidAmount},
 		},
 		{
 			name:       "amount without operator",
 			query:      "amount=10",
-			wantFields: map[string]string{"amount_operator": CodeInvalidAmountOperator},
+			wantFields: map[string]string{"amountOperator": CodeInvalidAmountOperator},
 		},
 	}
 
@@ -218,46 +218,46 @@ func TestParseDateFilter(t *testing.T) {
 		{name: "omitted"},
 		{
 			name:         "date_from only",
-			query:        "date_from=2026-01-01",
+			query:        "dateFrom=2026-01-01",
 			wantDateFrom: timePtr(utcDate(2026, 1, 1)),
 		},
 		{
 			// date_to is returned as the exclusive start of the next day.
 			name:       "date_to only",
-			query:      "date_to=2026-09-13",
+			query:      "dateTo=2026-09-13",
 			wantDateTo: timePtr(utcDate(2026, 9, 14)),
 		},
 		{
 			name:         "both",
-			query:        "date_from=2026-01-01&date_to=2026-09-13",
+			query:        "dateFrom=2026-01-01&dateTo=2026-09-13",
 			wantDateFrom: timePtr(utcDate(2026, 1, 1)),
 			wantDateTo:   timePtr(utcDate(2026, 9, 14)),
 		},
 		{
 			name:         "exact boundary: date_from equals date_to",
-			query:        "date_from=2026-09-13&date_to=2026-09-13",
+			query:        "dateFrom=2026-09-13&dateTo=2026-09-13",
 			wantDateFrom: timePtr(utcDate(2026, 9, 13)),
 			wantDateTo:   timePtr(utcDate(2026, 9, 14)),
 		},
 		{
 			name:       "invalid date_from format",
-			query:      "date_from=2026/01/01",
-			wantFields: map[string]string{"date_from": CodeInvalidDateFrom},
+			query:      "dateFrom=2026/01/01",
+			wantFields: map[string]string{"dateFrom": CodeInvalidDateFrom},
 		},
 		{
 			name:       "invalid date_to format",
-			query:      "date_to=13-09-2026",
-			wantFields: map[string]string{"date_to": CodeInvalidDateTo},
+			query:      "dateTo=13-09-2026",
+			wantFields: map[string]string{"dateTo": CodeInvalidDateTo},
 		},
 		{
 			name:       "date_from is a full timestamp, not a date",
-			query:      "date_from=2026-01-01T00:00:00Z",
-			wantFields: map[string]string{"date_from": CodeInvalidDateFrom},
+			query:      "dateFrom=2026-01-01T00:00:00Z",
+			wantFields: map[string]string{"dateFrom": CodeInvalidDateFrom},
 		},
 		{
 			name:       "date_from after date_to",
-			query:      "date_from=2026-09-14&date_to=2026-09-13",
-			wantFields: map[string]string{"date_to": CodeInvalidDateRange},
+			query:      "dateFrom=2026-09-14&dateTo=2026-09-13",
+			wantFields: map[string]string{"dateTo": CodeInvalidDateRange},
 		},
 	}
 

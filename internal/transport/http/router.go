@@ -45,12 +45,12 @@ func NewRouter(
 		r.Get("/api/v1/harvests", harvestHandler.ListAll)
 		r.Get("/api/v1/harvests/", harvestHandler.ListAll)
 
-		r.Route("/api/v1/hives/{hiveID}/harvests", func(r chi.Router) {
+		r.Route("/api/v1/hives/{hiveId}/harvests", func(r chi.Router) {
 			r.Post("/", harvestHandler.Create)
 			r.Get("/", harvestHandler.List)
-			r.Get("/{harvestID}", harvestHandler.Get)
-			r.Put("/{harvestID}", harvestHandler.Update)
-			r.Delete("/{harvestID}", harvestHandler.Delete)
+			r.Get("/{harvestId}", harvestHandler.Get)
+			r.Put("/{harvestId}", harvestHandler.Update)
+			r.Delete("/{harvestId}", harvestHandler.Delete)
 		})
 	})
 

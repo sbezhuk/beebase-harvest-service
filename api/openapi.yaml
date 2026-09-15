@@ -87,7 +87,7 @@ paths:
         - name: product
           in: query
           schema: { $ref: "#/components/schemas/HarvestProduct" }
-        - name: amount_operator
+        - name: amountOperator
           in: query
           description: Must be supplied together with amount; supports gt, lt, and eq.
           schema: { $ref: "#/components/schemas/AmountOperator" }
@@ -95,11 +95,11 @@ paths:
           in: query
           description: Must be supplied together with amount_operator; non-negative amount to compare.
           schema: { type: number, minimum: 0 }
-        - name: date_from
+        - name: dateFrom
           in: query
           description: Inclusive harvested_at lower bound as YYYY-MM-DD.
           schema: { type: string, format: date }
-        - name: date_to
+        - name: dateTo
           in: query
           description: Inclusive harvested_at upper bound as YYYY-MM-DD; date_from must not be later.
           schema: { type: string, format: date }
@@ -223,7 +223,7 @@ paths:
           description: Optional exact-match filter on product.
           required: false
           schema: { $ref: "#/components/schemas/HarvestProduct" }
-        - name: amount_operator
+        - name: amountOperator
           in: query
           description: >
             Comparison applied by the amount filter. Must be given
@@ -240,7 +240,7 @@ paths:
             amount field.
           required: false
           schema: { type: number, minimum: 0 }
-        - name: date_from
+        - name: dateFrom
           in: query
           description: >
             Optional inclusive lower bound on harvested_at, as an ISO 8601
@@ -250,7 +250,7 @@ paths:
             fall after date_to.
           required: false
           schema: { type: string, format: date }
-        - name: date_to
+        - name: dateTo
           in: query
           description: >
             Optional inclusive upper bound on harvested_at, as an ISO 8601
@@ -466,7 +466,7 @@ components:
 
     CreateHarvestRequest:
       type: object
-      required: [product, amount, unit, harvested_at]
+      required: [product, amount, unit, harvestedAt]
       properties:
         product: { $ref: "#/components/schemas/HarvestProduct" }
         amount:
@@ -474,7 +474,7 @@ components:
           minimum: 0
           description: The quantity collected, in `unit`. 0 is allowed; negative values are not.
         unit: { $ref: "#/components/schemas/HarvestUnit" }
-        harvested_at:
+        harvestedAt:
           type: string
           format: date-time
           description: >
@@ -484,7 +484,7 @@ components:
 
     UpdateHarvestRequest:
       type: object
-      required: [product, amount, unit, harvested_at]
+      required: [product, amount, unit, harvestedAt]
       description: >
         Full replacement (PUT semantics) - there is no partial patch.
         product, amount, unit, and harvested_at are all set from the
@@ -496,31 +496,31 @@ components:
           minimum: 0
           description: The quantity collected, in `unit`. 0 is allowed; negative values are not.
         unit: { $ref: "#/components/schemas/HarvestUnit" }
-        harvested_at: { type: string, format: date-time }
+        harvestedAt: { type: string, format: date-time }
 
     HarvestResponse:
       type: object
       properties:
         id: { type: string, format: uuid }
-        hive_id: { type: string, format: uuid }
+        hiveId: { type: string, format: uuid }
         product: { $ref: "#/components/schemas/HarvestProduct" }
         amount: { type: number }
         unit: { $ref: "#/components/schemas/HarvestUnit" }
-        harvested_at: { type: string, format: date-time }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
+        harvestedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
 
     Pagination:
       type: object
       description: Metadata describing the requested page relative to the full result set.
-      required: [page, limit, total, total_pages, has_next, has_previous]
+      required: [page, limit, total, totalPages, hasNext, hasPrevious]
       properties:
         page: { type: integer, example: 1 }
         limit: { type: integer, example: 20 }
         total: { type: integer, description: Total matching rows across all pages., example: 37 }
-        total_pages: { type: integer, example: 2 }
-        has_next: { type: boolean }
-        has_previous: { type: boolean }
+        totalPages: { type: integer, example: 2 }
+        hasNext: { type: boolean }
+        hasPrevious: { type: boolean }
 
     ErrorResponse:
       type: object
