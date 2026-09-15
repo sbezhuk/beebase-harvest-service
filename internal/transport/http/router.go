@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	httpmw "github.com/sbezhuk/beebase-common/authmw"
+	"github.com/sbezhuk/beebase-common/internalauth"
 	harvesthttp "github.com/sbezhuk/beebase-harvest-service/internal/transport/http/harvest"
 )
 
@@ -22,7 +23,12 @@ func NewRouter(
 	db *pgxpool.Pool,
 	harvestHandler *harvesthttp.Handler,
 	tokenParser httpmw.AccessTokenParser,
+	internalTokens ...string,
 ) http.Handler {
+	internalToken := ""
+	if len(internalTokens) > 0 {
+		internalToken = internalTokens[0]
+	}
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -32,7 +38,7 @@ func NewRouter(
 
 	r.Get("/health", HealthHandler)
 	r.Get("/ready", ReadyHandler(db))
-	r.Get("/internal/api/v1/harvests/{id}/exists", existsHandler(db, "harvests", false))
+	r.With(internalauth.RequireAuth(internalToken)).Get("/internal/api/v1/harvests/{id}/exists", existsHandler(db, "harvests", false))
 
 	r.Group(func(r chi.Router) {
 		r.Use(httpmw.RequireAuth(tokenParser))

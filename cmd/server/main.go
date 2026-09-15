@@ -81,9 +81,9 @@ func run() error {
 	harvestRepo := repopostgres.NewHarvestRepository(db)
 	hiveVerifier := hiveclient.New(cfg.HiveServiceURL)
 	harvestService := appharvest.NewService(harvestRepo, hiveVerifier)
-	harvestHandler := harvesthttp.NewHandler(harvestService, log, notificationclient.New(cfg.NotificationServiceURL))
+	harvestHandler := harvesthttp.NewHandler(harvestService, log, notificationclient.New(cfg.NotificationServiceURL, cfg.InternalServiceToken))
 
-	router := transporthttp.NewRouter(log, db, harvestHandler, verifier)
+	router := transporthttp.NewRouter(log, db, harvestHandler, verifier, cfg.InternalServiceToken)
 
 	srv := server.New(server.Config{
 		Addr:         ":" + cfg.HTTPPort,
