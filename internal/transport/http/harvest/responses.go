@@ -15,7 +15,7 @@ type Response struct {
 	Product     harvest.Product `json:"product"`
 	Amount      float64         `json:"amount"`
 	Unit        harvest.Unit    `json:"unit"`
-	HarvestedAt time.Time       `json:"harvestedAt"`
+	HarvestedAt string          `json:"harvestedAt"`
 	CreatedAt   time.Time       `json:"createdAt"`
 	UpdatedAt   time.Time       `json:"updatedAt"`
 }
@@ -28,7 +28,7 @@ func newResponse(h *harvest.Harvest) Response {
 		Product:     h.Product,
 		Amount:      h.Amount,
 		Unit:        h.Unit,
-		HarvestedAt: h.HarvestedAt,
+		HarvestedAt: h.HarvestedAt.Format("2006-01-02"),
 		CreatedAt:   h.CreatedAt,
 		UpdatedAt:   h.UpdatedAt,
 	}

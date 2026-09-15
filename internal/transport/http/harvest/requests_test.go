@@ -4,7 +4,7 @@ import "testing"
 
 func amountPtr(f float64) *float64 { return &f }
 
-const testHarvestedAt = "2026-09-01T00:00:00Z"
+const testHarvestedAt = "2026-09-01"
 
 func TestCreateRequest_Validate(t *testing.T) {
 	tests := []struct {
@@ -104,16 +104,16 @@ func TestCreateRequest_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid harvested_at format",
-			req:  CreateRequest{Product: "HONEY", Amount: amountPtr(1), Unit: "kg", HarvestedAt: "2026-09-01"},
+			req:  CreateRequest{Product: "HONEY", Amount: amountPtr(1), Unit: "kg", HarvestedAt: "2026-09-01T00:00:00Z"},
 			want: map[string]string{"harvestedAt": CodeHarvestedAtInvalid},
 		},
 		{
 			name: "everything wrong at once",
 			req:  CreateRequest{Product: "", Amount: nil, Unit: "", HarvestedAt: ""},
 			want: map[string]string{
-				"product":      CodeProductRequired,
-				"amount":       CodeAmountRequired,
-				"unit":         CodeUnitRequired,
+				"product":     CodeProductRequired,
+				"amount":      CodeAmountRequired,
+				"unit":        CodeUnitRequired,
 				"harvestedAt": CodeHarvestedAtRequired,
 			},
 		},

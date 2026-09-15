@@ -33,7 +33,7 @@ import (
 
 const testKID = "test-kid"
 
-const testHarvestedAt = "2026-09-01T00:00:00Z"
+const testHarvestedAt = "2026-09-01"
 
 // alwaysActiveSessionChecker is a stand-in for *sessionstore.Store: these
 // integration tests mint tokens directly (see tokenFor) rather than going
@@ -239,7 +239,7 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 	if created.HiveID != hiveID {
 		t.Fatalf("create: hive_id = %s, want %s", created.HiveID, hiveID)
 	}
-	if !created.HarvestedAt.Equal(mustParseTime(t, testHarvestedAt)) {
+	if created.HarvestedAt != testHarvestedAt {
 		t.Fatalf("create: harvested_at = %s, want %s", created.HarvestedAt, testHarvestedAt)
 	}
 
@@ -269,7 +269,7 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 	}
 
 	// Update
-	newHarvestedAt := "2026-09-05T00:00:00Z"
+	newHarvestedAt := "2026-09-05"
 	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+hiveID.String()+"/harvests/"+created.ID.String(), token, map[string]any{
 		"product": "HONEY", "amount": 15, "unit": "l", "harvestedAt": newHarvestedAt,
 	})
@@ -281,7 +281,7 @@ func TestHarvestFlow_CreateListGetUpdateDelete(t *testing.T) {
 	if updated.Amount != 15 || updated.Unit != "l" {
 		t.Fatalf("update: got %+v, want amount=15 unit=l", updated)
 	}
-	if !updated.HarvestedAt.Equal(mustParseTime(t, newHarvestedAt)) {
+	if updated.HarvestedAt != newHarvestedAt {
 		t.Fatalf("update: harvested_at = %s, want %s", updated.HarvestedAt, newHarvestedAt)
 	}
 
@@ -381,14 +381,14 @@ func TestHarvestFlow_MultipleRecordsForSameProductAllowed(t *testing.T) {
 	stack.hive.allow(token, hiveID)
 
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvests", token, map[string]any{
-		"product": "HONEY", "amount": 10, "unit": "kg", "harvestedAt": "2026-08-15T00:00:00Z",
+		"product": "HONEY", "amount": 10, "unit": "kg", "harvestedAt": "2026-08-15",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create first honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
 	}
 
 	resp = stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvests", token, map[string]any{
-		"product": "HONEY", "amount": 7, "unit": "kg", "harvestedAt": "2026-09-01T00:00:00Z",
+		"product": "HONEY", "amount": 7, "unit": "kg", "harvestedAt": "2026-09-01",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create second honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -457,7 +457,7 @@ func TestHarvestFlow_ValidationErrors(t *testing.T) {
 		{"product": "POLLEN", "amount": 1, "unit": "l", "harvestedAt": testHarvestedAt},    // invalid combination
 		{"product": "PROPOLIS", "amount": 1, "unit": "kg", "harvestedAt": testHarvestedAt}, // invalid combination
 		{"product": "WAX", "amount": 1, "unit": "kg", "harvestedAt": testHarvestedAt},      // invalid combination
-		{"product": "HONEY", "amount": 1, "unit": "kg"},                                     // missing harvested_at
+		{"product": "HONEY", "amount": 1, "unit": "kg"},                                    // missing harvested_at
 		{"product": "HONEY", "amount": 1, "unit": "kg", "harvestedAt": "2026-09-01"},       // invalid harvested_at format
 	}
 	for _, body := range cases {
@@ -484,7 +484,7 @@ func TestHarvestFlow_ListPagination(t *testing.T) {
 	token := stack.tokenFor(t, uuid.New())
 	stack.hive.allow(token, hiveID)
 
-	dates := []string{"2026-08-01T00:00:00Z", "2026-08-15T00:00:00Z", "2026-09-01T00:00:00Z"}
+	dates := []string{"2026-08-01", "2026-08-15", "2026-09-01"}
 	for _, d := range dates {
 		resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvests", token, map[string]any{
 			"product": "HONEY", "amount": 1, "unit": "kg", "harvestedAt": d,
@@ -507,7 +507,7 @@ func TestHarvestFlow_ListPagination(t *testing.T) {
 		t.Fatalf("list page 1: pagination = %+v, want total=3 total_pages=2 has_next=true has_previous=false", page1.Pagination)
 	}
 	// Ordered by harvested_at DESC: the most recent two come first.
-	if !page1.Items[0].HarvestedAt.Equal(mustParseTime(t, dates[2])) || !page1.Items[1].HarvestedAt.Equal(mustParseTime(t, dates[1])) {
+	if page1.Items[0].HarvestedAt != dates[2] || page1.Items[1].HarvestedAt != dates[1] {
 		t.Fatalf("list page 1: items not ordered by harvested_at DESC: %+v", page1.Items)
 	}
 
@@ -520,19 +520,9 @@ func TestHarvestFlow_ListPagination(t *testing.T) {
 	if len(page2.Items) != 1 || page2.Pagination.HasNext || !page2.Pagination.HasPrevious {
 		t.Fatalf("list page 2: pagination = %+v, items = %d, want 1 item has_next=false has_previous=true", page2.Pagination, len(page2.Items))
 	}
-	if !page2.Items[0].HarvestedAt.Equal(mustParseTime(t, dates[0])) {
+	if page2.Items[0].HarvestedAt != dates[0] {
 		t.Fatalf("list page 2: expected the oldest harvest, got %+v", page2.Items[0])
 	}
-}
-
-// mustParseTime parses an RFC 3339 timestamp, failing the test on error.
-func mustParseTime(t *testing.T, s string) time.Time {
-	t.Helper()
-	parsed, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		t.Fatalf("parse time %q: %v", s, err)
-	}
-	return parsed
 }
 
 // TestHarvestFlow_ListDefaultsPageAndLimit proves omitting page/limit
@@ -672,7 +662,7 @@ func TestHarvestFlow_AmountFilter(t *testing.T) {
 		"amountOperator=gt&amount=abc", // invalid amount
 		"amountOperator=gt&amount=-1",  // negative amount
 		"amountOperator=gt",            // operator without amount
-		"amount=10",                     // amount without operator
+		"amount=10",                    // amount without operator
 	}
 	for _, query := range invalidCases {
 		resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvests?"+query, token, nil)
@@ -712,8 +702,8 @@ func TestHarvestFlow_DateFilter(t *testing.T) {
 		query string
 		want  int
 	}{
-		{"date_from only", "dateFrom=2026-08-15", 2},                         // aug15, sep1
-		{"date_to only", "dateTo=2026-08-15", 2},                             // aug1, aug15 (whole day included)
+		{"date_from only", "dateFrom=2026-08-15", 2},                        // aug15, sep1
+		{"date_to only", "dateTo=2026-08-15", 2},                            // aug1, aug15 (whole day included)
 		{"both", "dateFrom=2026-08-15&dateTo=2026-08-31", 1},                // only aug15
 		{"exact boundary date", "dateFrom=2026-09-01&dateTo=2026-09-01", 1}, // sep1, harvested at 23:59:59
 		{"range matching nothing", "dateFrom=2026-01-01&dateTo=2026-01-02", 0},
@@ -732,9 +722,9 @@ func TestHarvestFlow_DateFilter(t *testing.T) {
 	}
 
 	invalidCases := []string{
-		"dateFrom=2026/08/01",                    // invalid format
-		"dateTo=01-08-2026",                      // invalid format
-		"dateFrom=2026-08-01T00:00:00Z",          // full timestamp, not a date
+		"dateFrom=2026/08/01",                   // invalid format
+		"dateTo=01-08-2026",                     // invalid format
+		"dateFrom=2026-08-01T00:00:00Z",         // full timestamp, not a date
 		"dateFrom=2026-09-01&dateTo=2026-08-01", // date_from after date_to
 	}
 	for _, query := range invalidCases {
@@ -790,7 +780,7 @@ func TestHarvestFlow_CombinedFilters(t *testing.T) {
 	// prove product+date apply together with AND rather than either
 	// alone: this one matches product=HONEY but not date_from.
 	resp = stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvests", token, map[string]any{
-		"product": "HONEY", "amount": 20, "unit": "kg", "harvestedAt": "2026-01-01T00:00:00Z",
+		"product": "HONEY", "amount": 20, "unit": "kg", "harvestedAt": "2026-01-01",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("seed out-of-range honey: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -847,7 +837,7 @@ func TestHarvestFlow_FilteredOrdering(t *testing.T) {
 	}
 	// Should be excluded by the product filter below.
 	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvests", token, map[string]any{
-		"product": "WAX", "amount": 20, "unit": "g", "harvestedAt": "2026-09-05T00:00:00Z",
+		"product": "WAX", "amount": 20, "unit": "g", "harvestedAt": "2026-09-05",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create wax: status = %d, want %d", resp.StatusCode, http.StatusCreated)
@@ -863,7 +853,7 @@ func TestHarvestFlow_FilteredOrdering(t *testing.T) {
 		t.Fatalf("got %d items, want 3", len(list.Items))
 	}
 	for i, wantDate := range []string{dates[2], dates[1], dates[0]} {
-		if !list.Items[i].HarvestedAt.Equal(mustParseTime(t, wantDate)) {
+		if list.Items[i].HarvestedAt != wantDate {
 			t.Fatalf("item %d: harvested_at = %v, want %s (DESC order)", i, list.Items[i].HarvestedAt, wantDate)
 		}
 	}

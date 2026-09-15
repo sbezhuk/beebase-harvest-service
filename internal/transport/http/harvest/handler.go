@@ -52,8 +52,7 @@ const (
 
 // dateFilterLayout is the ISO 8601 calendar-date format the date_from/
 // date_to query parameters must use - a date only, no time-of-day or
-// offset (unlike harvested_at in the request body, which is a full RFC
-// 3339 timestamp).
+// offset. The same format is used by the harvestedAt request field.
 const dateFilterLayout = "2006-01-02"
 
 // Handler exposes the harvest HTTP endpoints. Every method requires the
@@ -94,7 +93,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Already validated as well-formed by CreateRequest.Validate.
-	harvestedAt, _ := time.Parse(time.RFC3339, req.HarvestedAt)
+	harvestedAt, _ := time.Parse(dateFilterLayout, req.HarvestedAt)
 
 	created, err := h.service.Create(r.Context(), token, hiveID, appharvest.CreateInput{
 		Product:     harvest.Product(req.Product),
@@ -346,7 +345,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Already validated as well-formed by UpdateRequest.Validate.
-	harvestedAt, _ := time.Parse(time.RFC3339, req.HarvestedAt)
+	harvestedAt, _ := time.Parse(dateFilterLayout, req.HarvestedAt)
 
 	updated, err := h.service.Update(r.Context(), token, hiveID, harvestID, appharvest.UpdateInput{
 		Product:     harvest.Product(req.Product),

@@ -53,7 +53,7 @@ HIVE_ID=... # a hive that TOKEN's owner created via hive-service
 
 curl -X POST http://localhost:8080/api/v1/hives/$HIVE_ID/harvests \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"product":"HONEY","amount":12.5,"unit":"kg","harvested_at":"2026-09-01T00:00:00Z"}'
+  -d '{"product":"HONEY","amount":12.5,"unit":"kg","harvested_at":"2026-09-01"}'
 
 curl "http://localhost:8080/api/v1/hives/$HIVE_ID/harvests" -H "Authorization: Bearer $TOKEN"
 ```

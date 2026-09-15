@@ -60,7 +60,7 @@ type Request struct {
 	// CodeAmountNegative.
 	Amount *float64 `json:"amount"`
 	Unit   string   `json:"unit"`
-	// HarvestedAt is when the product was actually collected (RFC 3339),
+	// HarvestedAt is the calendar date when the product was actually collected,
 	// distinct from the record's own created_at/updated_at bookkeeping
 	// timestamps.
 	HarvestedAt string `json:"harvestedAt"`
@@ -110,7 +110,7 @@ func (r Request) validate() map[string]string {
 	case r.HarvestedAt == "":
 		fields["harvestedAt"] = CodeHarvestedAtRequired
 	default:
-		if _, err := time.Parse(time.RFC3339, r.HarvestedAt); err != nil {
+		if _, err := time.Parse("2006-01-02", r.HarvestedAt); err != nil {
 			fields["harvestedAt"] = CodeHarvestedAtInvalid
 		}
 	}
