@@ -100,12 +100,12 @@ func TestCreateRequest_Validate(t *testing.T) {
 		{
 			name: "missing harvested_at",
 			req:  CreateRequest{Product: "HONEY", Amount: amountPtr(1), Unit: "kg", HarvestedAt: ""},
-			want: map[string]string{"harvested_at": CodeHarvestedAtRequired},
+			want: map[string]string{"harvestedAt": CodeHarvestedAtRequired},
 		},
 		{
 			name: "invalid harvested_at format",
 			req:  CreateRequest{Product: "HONEY", Amount: amountPtr(1), Unit: "kg", HarvestedAt: "2026-09-01"},
-			want: map[string]string{"harvested_at": CodeHarvestedAtInvalid},
+			want: map[string]string{"harvestedAt": CodeHarvestedAtInvalid},
 		},
 		{
 			name: "everything wrong at once",
@@ -114,7 +114,7 @@ func TestCreateRequest_Validate(t *testing.T) {
 				"product":      CodeProductRequired,
 				"amount":       CodeAmountRequired,
 				"unit":         CodeUnitRequired,
-				"harvested_at": CodeHarvestedAtRequired,
+				"harvestedAt": CodeHarvestedAtRequired,
 			},
 		},
 	}
@@ -150,7 +150,7 @@ func TestUpdateRequest_Validate(t *testing.T) {
 	}
 
 	fields = (&UpdateRequest{Product: "HONEY", Amount: amountPtr(1), Unit: "kg", HarvestedAt: ""}).Validate()
-	if code := fields["harvested_at"]; code != CodeHarvestedAtRequired {
+	if code := fields["harvestedAt"]; code != CodeHarvestedAtRequired {
 		t.Errorf("harvested_at code = %q, want %q", code, CodeHarvestedAtRequired)
 	}
 }

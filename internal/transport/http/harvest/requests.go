@@ -63,7 +63,7 @@ type Request struct {
 	// HarvestedAt is when the product was actually collected (RFC 3339),
 	// distinct from the record's own created_at/updated_at bookkeeping
 	// timestamps.
-	HarvestedAt string `json:"harvested_at"`
+	HarvestedAt string `json:"harvestedAt"`
 }
 
 // CreateRequest is the body of POST /hives/{hiveId}/harvests.
@@ -108,10 +108,10 @@ func (r Request) validate() map[string]string {
 
 	switch {
 	case r.HarvestedAt == "":
-		fields["harvested_at"] = CodeHarvestedAtRequired
+		fields["harvestedAt"] = CodeHarvestedAtRequired
 	default:
 		if _, err := time.Parse(time.RFC3339, r.HarvestedAt); err != nil {
-			fields["harvested_at"] = CodeHarvestedAtInvalid
+			fields["harvestedAt"] = CodeHarvestedAtInvalid
 		}
 	}
 

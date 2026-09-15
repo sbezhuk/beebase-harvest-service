@@ -11,13 +11,13 @@ import (
 // Response is the public representation of a harvest record.
 type Response struct {
 	ID          uuid.UUID       `json:"id"`
-	HiveID      uuid.UUID       `json:"hive_id"`
+	HiveID      uuid.UUID       `json:"hiveId"`
 	Product     harvest.Product `json:"product"`
 	Amount      float64         `json:"amount"`
 	Unit        harvest.Unit    `json:"unit"`
-	HarvestedAt time.Time       `json:"harvested_at"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	HarvestedAt time.Time       `json:"harvestedAt"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	UpdatedAt   time.Time       `json:"updatedAt"`
 }
 
 // newResponse builds a Response for h.

@@ -32,7 +32,7 @@ type hivePage struct {
 		ID uuid.UUID `json:"id"`
 	} `json:"items"`
 	Pagination struct {
-		TotalPages int `json:"total_pages"`
+		TotalPages int `json:"totalPages"`
 	} `json:"pagination"`
 }
 

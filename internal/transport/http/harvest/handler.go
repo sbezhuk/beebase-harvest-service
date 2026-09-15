@@ -216,7 +216,7 @@ func parseProductFilter(r *http.Request, fields map[string]string) (*harvest.Pro
 // amount value follows the same non-negative rule as the request body's
 // own amount field.
 func parseAmountFilter(r *http.Request, fields map[string]string) (*harvest.AmountOperator, *float64, map[string]string) {
-	rawOperator := r.URL.Query().Get("amount_operator")
+	rawOperator := r.URL.Query().Get("amountOperator")
 	rawAmount := r.URL.Query().Get("amount")
 
 	if rawOperator == "" && rawAmount == "" {
@@ -229,7 +229,7 @@ func parseAmountFilter(r *http.Request, fields map[string]string) (*harvest.Amou
 		if fields == nil {
 			fields = map[string]string{}
 		}
-		fields["amount_operator"] = CodeInvalidAmountOperator
+		fields["amountOperator"] = CodeInvalidAmountOperator
 	} else {
 		operator = &op
 	}
@@ -260,8 +260,8 @@ func parseAmountFilter(r *http.Request, fields map[string]string) (*harvest.Amou
 // dates, not as the adjusted bounds returned here); given alone, each
 // applies independently, and neither requires the other.
 func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateTo *time.Time, _ map[string]string) {
-	rawFrom := r.URL.Query().Get("date_from")
-	rawTo := r.URL.Query().Get("date_to")
+	rawFrom := r.URL.Query().Get("dateFrom")
+	rawTo := r.URL.Query().Get("dateTo")
 
 	var fromDay, toDay *time.Time
 
@@ -271,7 +271,7 @@ func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateT
 			if fields == nil {
 				fields = map[string]string{}
 			}
-			fields["date_from"] = CodeInvalidDateFrom
+			fields["dateFrom"] = CodeInvalidDateFrom
 		} else {
 			fromDay = &parsed
 			dateFrom = &parsed
@@ -284,7 +284,7 @@ func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateT
 			if fields == nil {
 				fields = map[string]string{}
 			}
-			fields["date_to"] = CodeInvalidDateTo
+			fields["dateTo"] = CodeInvalidDateTo
 		} else {
 			toDay = &parsed
 			exclusive := parsed.AddDate(0, 0, 1)
@@ -296,7 +296,7 @@ func parseDateFilter(r *http.Request, fields map[string]string) (dateFrom, dateT
 		if fields == nil {
 			fields = map[string]string{}
 		}
-		fields["date_to"] = CodeInvalidDateRange
+		fields["dateTo"] = CodeInvalidDateRange
 	}
 
 	return dateFrom, dateTo, fields
@@ -411,7 +411,7 @@ func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (string, b
 }
 
 func (h *Handler) pathHiveID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
-	id, err := uuid.Parse(chi.URLParam(r, "hiveID"))
+	id, err := uuid.Parse(chi.URLParam(r, "hiveId"))
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidHiveID, "hive id must be a valid UUID")
 		return uuid.Nil, false
@@ -420,7 +420,7 @@ func (h *Handler) pathHiveID(w http.ResponseWriter, r *http.Request) (uuid.UUID,
 }
 
 func (h *Handler) pathHarvestID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
-	id, err := uuid.Parse(chi.URLParam(r, "harvestID"))
+	id, err := uuid.Parse(chi.URLParam(r, "harvestId"))
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, CodeInvalidHarvestID, "harvest id must be a valid UUID")
 		return uuid.Nil, false
