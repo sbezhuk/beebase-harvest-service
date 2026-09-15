@@ -56,13 +56,13 @@ type Handler struct {
 	service   *appharvest.Service
 	log       *slog.Logger
 	reminders interface {
-		Cleanup(context.Context, string, uuid.UUID) error
+		Cleanup(context.Context, string, string, uuid.UUID) error
 	}
 }
 
 // NewHandler returns a Handler backed by service.
 func NewHandler(service *appharvest.Service, log *slog.Logger, reminders ...interface {
-	Cleanup(context.Context, string, uuid.UUID) error
+	Cleanup(context.Context, string, string, uuid.UUID) error
 }) *Handler {
 	h := &Handler{service: service, log: log}
 	if len(reminders) > 0 {
@@ -380,7 +380,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 	if h.reminders != nil {
-		if err := h.reminders.Cleanup(r.Context(), "harvest", harvestID); err != nil {
+		if err := h.reminders.Cleanup(r.Context(), token, "harvest", harvestID); err != nil {
 			h.log.Warn("reminder cleanup failed", "entity_type", "harvest", "entity_id", harvestID, "error", err)
 		}
 	}
