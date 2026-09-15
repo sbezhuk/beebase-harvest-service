@@ -42,6 +42,12 @@ const (
 	CodeInvalidDateTo         = "invalid_date_to"
 	CodeInvalidDateRange      = "invalid_date_range"
 	CodeInvalidSortOrder      = "invalid_sort_order"
+	// CodeParentResourceProLocked identifies a create/update attempted
+	// against a harvest whose hive (or that hive's own parent apiary)
+	// currently requires Pro - reuses hive-service's naming convention
+	// for the same concept, since it's the same meaning from the
+	// client's point of view regardless of which service returned it.
+	CodeParentResourceProLocked = "parent_resource_pro_locked"
 )
 
 // dateFilterLayout is the ISO 8601 calendar-date format the date_from/
@@ -428,6 +434,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusNotFound, CodeHiveNotFound, "hive not found")
 	case errors.Is(err, harvest.ErrNotFound):
 		httpx.WriteError(w, http.StatusNotFound, CodeHarvestNotFound, "harvest not found")
+	case errors.Is(err, appharvest.ErrHiveReadOnly):
+		httpx.WriteError(w, http.StatusForbidden, CodeParentResourceProLocked, "this harvest's hive requires Pro to edit")
 	default:
 		httpx.WriteInternalError(w, h.log, err)
 	}

@@ -142,22 +142,34 @@ func (f *fakeHarvestRepo) Delete(_ context.Context, hiveID, harvestID uuid.UUID)
 // are "owned", everything else is rejected exactly like a 404 from the
 // real service would be.
 type fakeHiveVerifier struct {
-	owned map[string]uuid.UUID // token -> the one hive it owns
+	owned    map[string]uuid.UUID // token -> the one hive it owns
+	readOnly map[uuid.UUID]bool   // hives explicitly marked not writable
 }
 
 func newFakeHiveVerifier() *fakeHiveVerifier {
-	return &fakeHiveVerifier{owned: map[string]uuid.UUID{}}
+	return &fakeHiveVerifier{owned: map[string]uuid.UUID{}, readOnly: map[uuid.UUID]bool{}}
 }
 
+// allow marks hiveID as owned by whoever presents token, and writable by
+// default - the right default for every test that isn't specifically
+// exercising entitlement.
 func (f *fakeHiveVerifier) allow(token string, hiveID uuid.UUID) {
 	f.owned[token] = hiveID
 }
 
-func (f *fakeHiveVerifier) Verify(_ context.Context, accessToken string, hiveID uuid.UUID) error {
-	if owned, ok := f.owned[accessToken]; ok && owned == hiveID {
-		return nil
+// lock marks hiveID as currently read-only, as hive-service would report
+// once it (or its parent apiary) falls outside the caller's Free
+// entitlement.
+func (f *fakeHiveVerifier) lock(hiveID uuid.UUID) {
+	f.readOnly[hiveID] = true
+}
+
+func (f *fakeHiveVerifier) Verify(_ context.Context, accessToken string, hiveID uuid.UUID) (bool, error) {
+	owned, ok := f.owned[accessToken]
+	if !ok || owned != hiveID {
+		return false, appharvest.ErrHiveNotFound
 	}
-	return appharvest.ErrHiveNotFound
+	return !f.readOnly[hiveID], nil
 }
 
 // --- tests ---

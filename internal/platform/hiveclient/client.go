@@ -45,34 +45,45 @@ func New(baseURL string) *Client {
 	}
 }
 
+// hiveDetailResponse decodes just the one field this client needs off
+// hive-service's GET /api/v1/hives/{id} response - it carries many more
+// (name, notes, images, ...) that this service has no use for.
+type hiveDetailResponse struct {
+	Writable bool `json:"writable"`
+}
+
 // Verify implements application/harvest.HiveVerifier.
-func (c *Client) Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) error {
+func (c *Client) Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) (bool, error) {
 	url := fmt.Sprintf("%s/api/v1/hives/%s", c.baseURL, hiveID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("hiveclient: build request: %w", err)
+		return false, fmt.Errorf("hiveclient: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("hiveclient: call hive-service: %w", err)
+		return false, fmt.Errorf("hiveclient: call hive-service: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return nil
+		var body hiveDetailResponse
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			return false, fmt.Errorf("hiveclient: decode response: %w", err)
+		}
+		return body.Writable, nil
 	case http.StatusNotFound:
-		return appharvest.ErrHiveNotFound
+		return false, appharvest.ErrHiveNotFound
 	default:
 		// Anything else (401, 5xx, ...) is unexpected for a token this
 		// service already verified itself: fail closed with a distinct,
 		// observable error rather than silently treating it as "not
 		// found", which would mask a real problem (e.g. hive-service
 		// misconfigured or unreachable) as a client-facing 404.
-		return fmt.Errorf("hiveclient: unexpected status %d from hive-service", resp.StatusCode)
+		return false, fmt.Errorf("hiveclient: unexpected status %d from hive-service", resp.StatusCode)
 	}
 }
 

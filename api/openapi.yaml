@@ -22,7 +22,7 @@ info:
     transitive against apiary-service, this single call confirms the
     whole chain - harvest-service never queries hive or apiary ownership
     itself, and never stores a copy of that ownership data.
-  version: 0.1.0
+  version: 0.2.0
 servers:
   - url: http://localhost:8080
 
@@ -176,6 +176,17 @@ paths:
               schema: { $ref: "#/components/schemas/ValidationErrorResponse" }
         "401":
           description: Missing, invalid, or expired access token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: >
+            hiveId exists and belongs to the caller, but is not currently
+            writable under their Free entitlement — either the hive itself
+            or its parent apiary requires Pro (code
+            parent_resource_pro_locked). Historical harvest records under
+            it remain fully readable; creating a new one requires the hive
+            to become writable again (promotion, or upgrading to Pro).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -368,6 +379,15 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "403":
+          description: >
+            The hive is not currently writable under the caller's Free
+            entitlement (code parent_resource_pro_locked), re-verified
+            against hive-service on every update. Historical harvest
+            records remain readable and deletable regardless.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
         "404":
           description: >
             No such hive (or it belongs to a different user), or no such
@@ -523,6 +543,7 @@ components:
                 - invalid_access_token
                 - invalid_body
                 - internal_error
+                - parent_resource_pro_locked
               example: harvest_not_found
             message: { type: string, example: harvest not found }
 

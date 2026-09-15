@@ -47,23 +47,32 @@ func (alwaysActiveSessionChecker) IsActive(_ context.Context, _, _ uuid.UUID) (b
 
 // fakeHiveService stands in for the real hive-service: it owns exactly
 // one hive per bearer token registered via allow, and answers
-// GET /api/v1/hives/{id} exactly like the real service would - 200 if the
-// presented token's owner owns that hive, 404 otherwise - so this test
-// exercises harvest-service's real cross-service HTTP call without
-// needing a second full service running.
+// GET /api/v1/hives/{id} exactly like the real service would - 200 (with
+// a JSON body carrying "writable") if the presented token's owner owns
+// that hive, 404 otherwise - so this test exercises harvest-service's
+// real cross-service HTTP call without needing a second full service
+// running. lock() flips the owned hive to read-only for tests exercising
+// the transitive parent-hive writability check.
 type fakeHiveService struct {
-	mu    sync.Mutex
-	owned map[string]uuid.UUID // "Bearer <token>" -> the one hive it owns
+	mu       sync.Mutex
+	owned    map[string]uuid.UUID // "Bearer <token>" -> the one hive it owns
+	readOnly map[uuid.UUID]bool   // hives explicitly marked not writable
 }
 
 func newFakeHiveService() *fakeHiveService {
-	return &fakeHiveService{owned: map[string]uuid.UUID{}}
+	return &fakeHiveService{owned: map[string]uuid.UUID{}, readOnly: map[uuid.UUID]bool{}}
 }
 
 func (f *fakeHiveService) allow(token string, hiveID uuid.UUID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.owned["Bearer "+token] = hiveID
+}
+
+func (f *fakeHiveService) lock(hiveID uuid.UUID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.readOnly[hiveID] = true
 }
 
 func (f *fakeHiveService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +85,14 @@ func (f *fakeHiveService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
+
+	f.mu.Lock()
+	writable := !f.readOnly[hiveID]
+	f.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{"writable": writable})
 }
 
 type testStack struct {
@@ -985,5 +1001,79 @@ func TestHarvestFlow_WithoutTokenIsUnauthorized(t *testing.T) {
 	resp := stack.request(t, http.MethodGet, "/api/v1/hives/"+uuid.New().String()+"/harvests", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("list without token: status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
+// TestHarvestFlow_ReadOnlyHive_RejectsCreateAndUpdateButAllowsGetAndDelete
+// is the end-to-end proof (real HTTP handler, real Postgres, real
+// hiveclient HTTP round trip against the fake hive-service) that
+// harvest-service enforces parent-hive writability on every operation, as
+// its architecture already re-verifies the hive on every call: a hive
+// hive-service reports as read-only blocks create and update with 403
+// parent_resource_pro_locked, while get and delete remain unaffected.
+func TestHarvestFlow_ReadOnlyHive_RejectsCreateAndUpdateButAllowsGetAndDelete(t *testing.T) {
+	stack := newTestStack(t)
+	hiveID := uuid.New()
+	token := stack.tokenFor(t, uuid.New())
+	stack.hive.allow(token, hiveID)
+
+	// Seed one harvest record while the hive is still writable.
+	resp := stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvests", token, map[string]any{
+		"product": "HONEY", "amount": 12.5, "unit": "kg", "harvested_at": testHarvestedAt,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("seed create: status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	var seeded harvesthttp.Response
+	decodeJSON(t, resp, &seeded)
+
+	// The hive becomes read-only (e.g. Pro expired and it fell outside
+	// the new Free entitlement).
+	stack.hive.lock(hiveID)
+
+	// Create is rejected.
+	resp = stack.request(t, http.MethodPost, "/api/v1/hives/"+hiveID.String()+"/harvests", token, map[string]any{
+		"product": "HONEY", "amount": 1.0, "unit": "kg", "harvested_at": testHarvestedAt,
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("create under a read-only hive: status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	var errBody struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	decodeJSON(t, resp, &errBody)
+	if errBody.Error.Code != "parent_resource_pro_locked" {
+		t.Fatalf("create error code = %q, want %q", errBody.Error.Code, "parent_resource_pro_locked")
+	}
+
+	// Update of the pre-existing record is also rejected.
+	resp = stack.request(t, http.MethodPut, "/api/v1/hives/"+hiveID.String()+"/harvests/"+seeded.ID.String(), token, map[string]any{
+		"product": "HONEY", "amount": 99.0, "unit": "kg", "harvested_at": testHarvestedAt,
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("update under a now-read-only hive: status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+	decodeJSON(t, resp, &errBody)
+	if errBody.Error.Code != "parent_resource_pro_locked" {
+		t.Fatalf("update error code = %q, want %q", errBody.Error.Code, "parent_resource_pro_locked")
+	}
+
+	// Get still works - historical data stays readable.
+	resp = stack.request(t, http.MethodGet, "/api/v1/hives/"+hiveID.String()+"/harvests/"+seeded.ID.String(), token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get under a read-only hive: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var got harvesthttp.Response
+	decodeJSON(t, resp, &got)
+	if got.Amount != 12.5 {
+		t.Fatalf("get after rejected update: amount = %v, want unchanged 12.5", got.Amount)
+	}
+
+	// Delete still works.
+	resp = stack.request(t, http.MethodDelete, "/api/v1/hives/"+hiveID.String()+"/harvests/"+seeded.ID.String(), token, nil)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete under a read-only hive: status = %d, want %d", resp.StatusCode, http.StatusNoContent)
 	}
 }

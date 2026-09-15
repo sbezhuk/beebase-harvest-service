@@ -17,9 +17,18 @@ import (
 // hive ownership data of its own (ticket requirement: no duplicated
 // ownership, no cross-database foreign key to hive-service's database).
 // So every use case in application/harvest calls Verify on every
-// operation (create, get, list, update, delete), not just on create.
+// operation (create, get, list, update, delete), not just on create -
+// which also means Verify's writable answer is always freshly resolved
+// for every one of those calls, with no separate re-check needed for
+// Update the way inspection-service required one.
 type HiveVerifier interface {
-	Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) error
+	// Verify confirms hiveID belongs to whoever presented accessToken,
+	// and reports whether hive-service currently considers it writable
+	// (always true under Pro; under Free, true only when its parent
+	// apiary is itself writable and it ranks within the caller's Free
+	// hive entitlement). Returns ErrHiveNotFound if it doesn't belong to
+	// them (or doesn't exist).
+	Verify(ctx context.Context, accessToken string, hiveID uuid.UUID) (writable bool, err error)
 }
 
 // OwnedHiveLister is implemented by the hive-service client used for the

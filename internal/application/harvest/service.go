@@ -36,8 +36,12 @@ func NewService(harvests harvest.Repository, hives HiveVerifier) *Service {
 // number of harvest records for the same product - each call creates a
 // new, independent record.
 func (s *Service) Create(ctx context.Context, accessToken string, hiveID uuid.UUID, in CreateInput) (*harvest.Harvest, error) {
-	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
+	writable, err := s.hives.Verify(ctx, accessToken, hiveID)
+	if err != nil {
 		return nil, err
+	}
+	if !writable {
+		return nil, ErrHiveReadOnly
 	}
 
 	h := harvest.New(hiveID, in.Product, in.Amount, in.Unit, in.HarvestedAt)
@@ -51,7 +55,7 @@ func (s *Service) Create(ctx context.Context, accessToken string, hiveID uuid.UU
 // Get returns the harvest identified by harvestID under hiveID, after
 // confirming hiveID belongs to whoever presented accessToken.
 func (s *Service) Get(ctx context.Context, accessToken string, hiveID, harvestID uuid.UUID) (*harvest.Harvest, error) {
-	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
+	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return nil, err
 	}
 
@@ -66,7 +70,7 @@ func (s *Service) Get(ctx context.Context, accessToken string, hiveID, harvestID
 // non-nil ("asc" or "desc") the page is ordered by creation date in that
 // direction instead of the repository's default order (HarvestedAt DESC).
 func (s *Service) List(ctx context.Context, accessToken string, hiveID uuid.UUID, p pagination.Params, product *harvest.Product, amountOperator *harvest.AmountOperator, amount *float64, dateFrom, dateTo *time.Time, sortOrder *string) ([]*harvest.Harvest, int, error) {
-	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
+	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return nil, 0, err
 	}
 
@@ -99,8 +103,12 @@ func (s *Service) ListAll(ctx context.Context, accessToken string, p pagination.
 // harvestID under hiveID, after confirming hiveID belongs to whoever
 // presented accessToken and that harvestID itself belongs to hiveID.
 func (s *Service) Update(ctx context.Context, accessToken string, hiveID, harvestID uuid.UUID, in UpdateInput) (*harvest.Harvest, error) {
-	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
+	writable, err := s.hives.Verify(ctx, accessToken, hiveID)
+	if err != nil {
 		return nil, err
+	}
+	if !writable {
+		return nil, ErrHiveReadOnly
 	}
 
 	h, err := s.harvests.GetByID(ctx, hiveID, harvestID)
@@ -124,7 +132,10 @@ func (s *Service) Update(ctx context.Context, accessToken string, hiveID, harves
 // Delete deletes the harvest identified by harvestID under hiveID, after
 // confirming hiveID belongs to whoever presented accessToken.
 func (s *Service) Delete(ctx context.Context, accessToken string, hiveID, harvestID uuid.UUID) error {
-	if err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
+	// Deleting a harvest is never gated by writability - a Free user can
+	// always delete historical records under a read-only hive, the same
+	// as every other resource in this model.
+	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
 		return err
 	}
 
