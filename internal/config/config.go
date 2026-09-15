@@ -40,7 +40,8 @@ type Config struct {
 	// specified hive by forwarding their own access token to hive-service's
 	// GET /api/v1/hives/{id}, on every call - not just once at creation
 	// time (see application/harvest.HiveVerifier).
-	HiveServiceURL string
+	HiveServiceURL         string
+	NotificationServiceURL string
 }
 
 // Load builds a Config from environment variables, falling back to
@@ -63,8 +64,9 @@ func Load() (*Config, error) {
 
 		LogLevel: getEnv("LOG_LEVEL", "info"),
 
-		AuthJWKSURL:    getEnv("AUTH_JWKS_URL", ""),
-		HiveServiceURL: getEnv("HIVE_SERVICE_URL", ""),
+		AuthJWKSURL:            getEnv("AUTH_JWKS_URL", ""),
+		HiveServiceURL:         getEnv("HIVE_SERVICE_URL", ""),
+		NotificationServiceURL: getEnv("NOTIFICATION_SERVICE_URL", ""),
 	}
 
 	if cfg.DatabaseURL == "" {

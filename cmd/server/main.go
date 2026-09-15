@@ -14,6 +14,7 @@ import (
 	appharvest "github.com/sbezhuk/beebase-harvest-service/internal/application/harvest"
 	"github.com/sbezhuk/beebase-harvest-service/internal/config"
 	"github.com/sbezhuk/beebase-harvest-service/internal/platform/hiveclient"
+	"github.com/sbezhuk/beebase-harvest-service/internal/platform/notificationclient"
 	"github.com/sbezhuk/beebase-harvest-service/internal/platform/postgres"
 	repopostgres "github.com/sbezhuk/beebase-harvest-service/internal/repository/postgres"
 	transporthttp "github.com/sbezhuk/beebase-harvest-service/internal/transport/http"
@@ -80,7 +81,7 @@ func run() error {
 	harvestRepo := repopostgres.NewHarvestRepository(db)
 	hiveVerifier := hiveclient.New(cfg.HiveServiceURL)
 	harvestService := appharvest.NewService(harvestRepo, hiveVerifier)
-	harvestHandler := harvesthttp.NewHandler(harvestService, log)
+	harvestHandler := harvesthttp.NewHandler(harvestService, log, notificationclient.New(cfg.NotificationServiceURL))
 
 	router := transporthttp.NewRouter(log, db, harvestHandler, verifier)
 
