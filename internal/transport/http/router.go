@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	httpmw "github.com/sbezhuk/beebase-common/authmw"
+	"github.com/sbezhuk/beebase-common/httpx"
 	"github.com/sbezhuk/beebase-common/internalauth"
 	harvesthttp "github.com/sbezhuk/beebase-harvest-service/internal/transport/http/harvest"
 )
@@ -39,6 +40,18 @@ func NewRouter(
 	r.Get("/health", HealthHandler)
 	r.Get("/ready", ReadyHandler(db))
 	r.With(internalauth.RequireAuth(internalToken)).Get("/internal/api/v1/harvests/{id}/exists", existsHandler(db, "harvests", false))
+	r.With(internalauth.RequireAuth(internalToken)).Delete("/internal/api/v1/users/{userID}", func(w http.ResponseWriter, req *http.Request) {
+		id, err := uuid.Parse(chi.URLParam(req, "userID"))
+		if err != nil {
+			httpx.WriteError(w, 400, "invalid_user_id", "invalid user id")
+			return
+		}
+		if err := harvestHandler.DeleteUserData(req.Context(), id); err != nil {
+			httpx.WriteError(w, 500, "cleanup_failed", "could not delete harvest data")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(httpmw.RequireAuth(tokenParser))
@@ -51,6 +64,7 @@ func NewRouter(
 			r.Get("/{harvestId}", harvestHandler.Get)
 			r.Put("/{harvestId}", harvestHandler.Update)
 			r.Delete("/{harvestId}", harvestHandler.Delete)
+			r.Delete("/", harvestHandler.DeleteByHive)
 		})
 	})
 

@@ -65,6 +65,10 @@ type Handler struct {
 	}
 }
 
+func (h *Handler) DeleteUserData(ctx context.Context, userID uuid.UUID) error {
+	return h.service.DeleteAllByUser(ctx, userID)
+}
+
 // NewHandler returns a Handler backed by service.
 func NewHandler(service *appharvest.Service, log *slog.Logger, reminders ...interface {
 	Cleanup(context.Context, string, uuid.UUID) error
@@ -95,7 +99,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	// Already validated as well-formed by CreateRequest.Validate.
 	harvestedAt, _ := time.Parse(dateFilterLayout, req.HarvestedAt)
 
-	created, err := h.service.Create(r.Context(), token, hiveID, appharvest.CreateInput{
+	userID, _ := httpmw.UserIDFromContext(r.Context())
+	created, err := h.service.CreateForUser(r.Context(), userID, token, hiveID, appharvest.CreateInput{
 		Product:     harvest.Product(req.Product),
 		Amount:      *req.Amount,
 		Unit:        harvest.Unit(req.Unit),
@@ -389,6 +394,24 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 			h.log.Warn("reminder cleanup failed", "entity_type", "harvest", "entity_id", harvestID, "error", err)
 		}
 	}
+}
+
+// DeleteByHive is the internal cascade primitive used by hive-service.
+func (h *Handler) DeleteByHive(w http.ResponseWriter, r *http.Request) {
+	token, ok := h.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	hiveID, ok := h.pathHiveID(w, r)
+	if !ok {
+		return
+	}
+	_, err := h.service.DeleteByHive(r.Context(), token, hiveID)
+	if err != nil {
+		h.writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // requireAuth returns the caller's raw access token (read off the

@@ -33,6 +33,10 @@ type Repository interface {
 	// Delete removes the harvest identified by harvestID under hiveID.
 	// Returns ErrNotFound under the same conditions as GetByID.
 	Delete(ctx context.Context, hiveID, harvestID uuid.UUID) error
+	// DeleteByHive hard-deletes every harvest under hiveID and returns the
+	// deleted IDs so dependent reminders can be cancelled in the same cascade.
+	DeleteByHive(ctx context.Context, hiveID uuid.UUID) ([]uuid.UUID, error)
+	ListIDsByHive(ctx context.Context, hiveID uuid.UUID) ([]uuid.UUID, error)
 }
 
 // ScopedRepository is the optional extension used by the global list. The

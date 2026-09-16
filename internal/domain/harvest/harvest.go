@@ -23,6 +23,9 @@ import (
 type Harvest struct {
 	ID     uuid.UUID
 	HiveID uuid.UUID // immutable after creation; opaque, owned by hive-service's own database
+	// UserID is denormalized for durable account deletion. It is nullable
+	// during the legacy backfill window because old rows predate this field.
+	UserID *uuid.UUID
 
 	Product Product
 	Amount  float64

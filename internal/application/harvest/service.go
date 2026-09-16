@@ -22,13 +22,22 @@ import (
 // service stores no hive ownership data of its own (see
 // HiveVerifier's doc comment).
 type Service struct {
-	harvests harvest.Repository
-	hives    HiveVerifier
+	harvests  harvest.Repository
+	hives     HiveVerifier
+	reminders interface {
+		Cleanup(context.Context, string, uuid.UUID) error
+	}
 }
 
 // NewService constructs a Service.
-func NewService(harvests harvest.Repository, hives HiveVerifier) *Service {
-	return &Service{harvests: harvests, hives: hives}
+func NewService(harvests harvest.Repository, hives HiveVerifier, reminders ...interface {
+	Cleanup(context.Context, string, uuid.UUID) error
+}) *Service {
+	s := &Service{harvests: harvests, hives: hives}
+	if len(reminders) > 0 {
+		s.reminders = reminders[0]
+	}
+	return s
 }
 
 // Create creates a new harvest record under hiveID, after confirming
@@ -36,6 +45,14 @@ func NewService(harvests harvest.Repository, hives HiveVerifier) *Service {
 // number of harvest records for the same product - each call creates a
 // new, independent record.
 func (s *Service) Create(ctx context.Context, accessToken string, hiveID uuid.UUID, in CreateInput) (*harvest.Harvest, error) {
+	return s.create(ctx, accessToken, hiveID, nil, in)
+}
+
+func (s *Service) CreateForUser(ctx context.Context, userID uuid.UUID, accessToken string, hiveID uuid.UUID, in CreateInput) (*harvest.Harvest, error) {
+	return s.create(ctx, accessToken, hiveID, &userID, in)
+}
+
+func (s *Service) create(ctx context.Context, accessToken string, hiveID uuid.UUID, userID *uuid.UUID, in CreateInput) (*harvest.Harvest, error) {
 	writable, err := s.hives.Verify(ctx, accessToken, hiveID)
 	if err != nil {
 		return nil, err
@@ -45,11 +62,42 @@ func (s *Service) Create(ctx context.Context, accessToken string, hiveID uuid.UU
 	}
 
 	h := harvest.New(hiveID, in.Product, in.Amount, in.Unit, in.HarvestedAt)
+	h.UserID = userID
 	if err := s.harvests.Create(ctx, h); err != nil {
 		return nil, fmt.Errorf("harvest: create: %w", err)
 	}
 
 	return h, nil
+}
+
+func (s *Service) DeleteAllByUser(ctx context.Context, userID uuid.UUID) error {
+	r, ok := s.harvests.(interface {
+		DeleteAllByUser(context.Context, uuid.UUID) error
+	})
+	if !ok {
+		return fmt.Errorf("harvest: repository does not support account cleanup")
+	}
+	return r.DeleteAllByUser(ctx, userID)
+}
+
+// DeleteByHive hard-deletes every harvest under an owned hive. It is the
+// cascade primitive called by hive-service.
+func (s *Service) DeleteByHive(ctx context.Context, accessToken string, hiveID uuid.UUID) ([]uuid.UUID, error) {
+	if _, err := s.hives.Verify(ctx, accessToken, hiveID); err != nil {
+		return nil, err
+	}
+	ids, err := s.harvests.ListIDsByHive(ctx, hiveID)
+	if err != nil {
+		return nil, err
+	}
+	if s.reminders != nil {
+		for _, id := range ids {
+			if err := s.reminders.Cleanup(ctx, "harvest", id); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s.harvests.DeleteByHive(ctx, hiveID)
 }
 
 // Get returns the harvest identified by harvestID under hiveID, after

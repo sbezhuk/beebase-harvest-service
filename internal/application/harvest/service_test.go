@@ -136,6 +136,31 @@ func (f *fakeHarvestRepo) Delete(_ context.Context, hiveID, harvestID uuid.UUID)
 	return nil
 }
 
+func (f *fakeHarvestRepo) DeleteByHive(_ context.Context, hiveID uuid.UUID) ([]uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var ids []uuid.UUID
+	for id, h := range f.byID {
+		if h.HiveID == hiveID {
+			ids = append(ids, id)
+			delete(f.byID, id)
+		}
+	}
+	return ids, nil
+}
+
+func (f *fakeHarvestRepo) ListIDsByHive(_ context.Context, hiveID uuid.UUID) ([]uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var ids []uuid.UUID
+	for id, h := range f.byID {
+		if h.HiveID == hiveID {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 // --- fake hive verifier ---
 
 // fakeHiveVerifier simulates hive-service: a set of (token, hiveID) pairs
@@ -144,6 +169,22 @@ func (f *fakeHarvestRepo) Delete(_ context.Context, hiveID, harvestID uuid.UUID)
 type fakeHiveVerifier struct {
 	owned    map[string]uuid.UUID // token -> the one hive it owns
 	readOnly map[uuid.UUID]bool   // hives explicitly marked not writable
+}
+
+type fakeReminderCleanup struct {
+	fail  bool
+	calls []uuid.UUID
+}
+
+func (f *fakeReminderCleanup) Cleanup(_ context.Context, typ string, id uuid.UUID) error {
+	if typ != "harvest" {
+		return errors.New("unexpected entity type")
+	}
+	f.calls = append(f.calls, id)
+	if f.fail {
+		return errors.New("temporary cleanup failure")
+	}
+	return nil
 }
 
 func newFakeHiveVerifier() *fakeHiveVerifier {
@@ -175,6 +216,33 @@ func (f *fakeHiveVerifier) Verify(_ context.Context, accessToken string, hiveID 
 // --- tests ---
 
 var testHarvestedAt = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+func TestDeleteByHive_CleansRemindersBeforeHardDeleteAndRetries(t *testing.T) {
+	verifier := newFakeHiveVerifier()
+	hiveID := uuid.New()
+	token := "owner"
+	verifier.allow(token, hiveID)
+	repo := newFakeHarvestRepo()
+	h := harvest.New(hiveID, harvest.ProductHoney, 1, harvest.UnitKilogram, testHarvestedAt)
+	if err := repo.Create(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	cleanup := &fakeReminderCleanup{fail: true}
+	svc := appharvest.NewService(repo, verifier, cleanup)
+	if _, err := svc.DeleteByHive(context.Background(), token, hiveID); err == nil {
+		t.Fatal("first cleanup failure was swallowed")
+	}
+	if _, err := repo.GetByID(context.Background(), hiveID, h.ID); err != nil {
+		t.Fatalf("failed cleanup deleted harvest: %v", err)
+	}
+	cleanup.fail = false
+	if _, err := svc.DeleteByHive(context.Background(), token, hiveID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetByID(context.Background(), hiveID, h.ID); !errors.Is(err, harvest.ErrNotFound) {
+		t.Fatalf("harvest survived retry: %v", err)
+	}
+}
 
 func TestCreate_Success(t *testing.T) {
 	verifier := newFakeHiveVerifier()
