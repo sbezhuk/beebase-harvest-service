@@ -7,6 +7,7 @@ package harvest
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,17 @@ type Service struct {
 	reminders interface {
 		Cleanup(context.Context, string, uuid.UUID) error
 	}
+}
+
+type ReportData struct {
+	Harvests []*harvest.Harvest
+	Totals   []ReportTotal
+}
+
+type ReportTotal struct {
+	Product harvest.Product
+	Unit    harvest.Unit
+	Amount  float64
 }
 
 // NewService constructs a Service.
@@ -145,6 +157,42 @@ func (s *Service) ListAll(ctx context.Context, accessToken string, p pagination.
 		return nil, 0, fmt.Errorf("harvest: repository does not support cross-hive listing")
 	}
 	return scoped.List(ctx, hiveIDs, p, product, amountOperator, amount, dateFrom, dateTo, sortOrder)
+}
+
+// GetInternalReportData returns all harvest records in the inclusive date
+// range for a trusted internal report consumer. It reuses the repository's
+// existing date filtering and ordering semantics, fetching pages internally
+// so the wire contract itself is not paginated.
+func (s *Service) GetInternalReportData(ctx context.Context, hiveID uuid.UUID, from, to time.Time) (ReportData, error) {
+	toExclusive := to.AddDate(0, 0, 1)
+	all := make([]*harvest.Harvest, 0)
+	for page := 1; ; page++ {
+		items, total, err := s.harvests.ListByHive(ctx, hiveID, pagination.Params{Page: page, Limit: pagination.MaxLimit}, nil, nil, nil, &from, &toExclusive, nil)
+		if err != nil {
+			return ReportData{}, fmt.Errorf("harvest: list internal report data: %w", err)
+		}
+		all = append(all, items...)
+		if len(all) >= total || len(items) == 0 {
+			break
+		}
+	}
+
+	totalByKey := make(map[[2]string]float64)
+	for _, item := range all {
+		key := [2]string{string(item.Product), string(item.Unit)}
+		totalByKey[key] += item.Amount
+	}
+	totals := make([]ReportTotal, 0, len(totalByKey))
+	for key, amount := range totalByKey {
+		totals = append(totals, ReportTotal{Product: harvest.Product(key[0]), Unit: harvest.Unit(key[1]), Amount: amount})
+	}
+	sort.Slice(totals, func(i, j int) bool {
+		if totals[i].Product != totals[j].Product {
+			return totals[i].Product < totals[j].Product
+		}
+		return totals[i].Unit < totals[j].Unit
+	})
+	return ReportData{Harvests: all, Totals: totals}, nil
 }
 
 // Update replaces the editable fields of the harvest identified by
